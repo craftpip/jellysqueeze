@@ -1,0 +1,32 @@
+libraries:
+  - name: Shows
+    paths:
+      - /mnt/media/Shows
+    profile: shows
+  - name: Movies
+    paths:
+      - /mnt/media/Movies
+    profile: movies
+  - name: Torrents
+    paths:
+      - /mnt/media/Torrents
+    profile: shows
+
+profiles:
+  shows:
+    target_bitrate: 2500
+    max_bitrate: 3500
+    tolerance: 300
+    encoder: nvidia
+    keep_audio_langs: [eng, en, jpn, ja]
+    keep_subtitles: true
+    minimum_savings_percent: 10
+
+  movies:
+    target_bitrate: 3500
+    max_bitrate: 5000
+    tolerance: 500
+    encoder: nvidia
+    keep_audio_langs: [eng, en]
+    keep_subtitles: true
+    minimum_savings_percent: 10

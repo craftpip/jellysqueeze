@@ -1,6 +1,8 @@
-# Media Convert Roadmap
+# Media Convert Roadmap — ✅ ALL DONE
 
-This plan describes the intended direction for making the project easier to use as a Jellyfin library converter.
+All features described below are now implemented. See AGENTS.md and `config.yml.example` for usage.
+
+This file is kept for reference. Originally it described the intended direction for making the project easier to use as a Jellyfin library converter.
 
 ## Goals
 

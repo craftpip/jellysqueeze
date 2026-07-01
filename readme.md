@@ -1,55 +1,94 @@
-# H.264 Bitrate Scanner & Converter
+# media-convert-for-jellyfin
 
-This project contains two Python scripts:
+Shrink your video library for Jellyfin (or any self-hosted media server) without the bloat. 🎬
 
-1. **Scanner (dry-run)**
-   Recursively scans a directory and prints only video files that match conversion conditions.
+Recursively scan a media directory, re-encode oversized videos to a target bitrate, and strip audio/subtitle tracks you don't need — all while keeping your existing H.264/HEVC files untouched.
 
-2. **Converter (active)**
-   Recursively scans a directory and converts high-bitrate videos to H.264 while preserving compatible subtitle streams.
+## 🤔 Why
 
-Both scripts use the same conversion decision logic, so scan output matches converter eligibility.
+Self-hosted video libraries accumulate huge files. This tool:
 
-## Usage
+- Finds videos above your target bitrate and re-encodes them smaller with **GPU-accelerated** or CPU encoding.
+- Removes **unwanted audio languages** so you don't keep 5+ audio tracks you can't understand.
+- Removes **unwanted subtitle streams** to save more space.
+- Converts multichannel audio (e.g. 7.1) down to stereo if you don't have a surround setup.
+- Tracks what's already been converted so you can stop/resume safely.
 
-```bash
-python scan.py /path/to/media
-python convert.py /path/to/media
-```
-
-Useful converter options:
+## 🚀 Quick start
 
 ```bash
+# Convert with GPU (NVIDIA)
 python convert.py /path/to/media --use nvidia
+
+# Convert with CPU and a specific quality
 python convert.py /path/to/media --use cpu --crf 23
-python convert.py /path/to/media --bitrate 2800 --verbose
-python convert.py /path/to/media --log-file convert.log
+
+# Convert with a target bitrate and keep a log
+python convert.py /path/to/media --bitrate 2800 --log-file convert.log
+
+# Run two conversions at once
+python convert.py /path/to/media --use nvidia --workers 2
 ```
 
-## Features
+## ✨ Features
 
-- Recursive directory scan
-- Bitrate detection with `ffprobe`
-- Container validation before conversion
-- Multiple transcoder profiles (`nvidia`, `amdgpu`, `intel`, `cpu`, `vaapi`)
-- Conversion tracking via `done.txt`
-- Conversion size report in `size-report.csv`
-- Temp file safety and automatic cleanup
+- Recursive directory scan — point it at your library root
+- GPU acceleration: `nvidia`, `amdgpu`, `intel`, `vaapi`, or `cpu`
+- Optional parallel workers for converting multiple files at once
+- Set target video bitrate or use CRF quality mode
+- Strip audio languages you don't speak
+- Strip subtitle streams you don't read
+- Downmix multichannel audio to stereo
+- Resume-safe — tracks completed conversions in `done.txt`
+- Size report in `size-report.csv`
+- Temp file safety with automatic cleanup
 
-## Requirements
+## 🎮 CLI Options
+
+| Option | Description | Default | Required |
+|---|---|---|---|
+| **Target & Scan** | | | |
+| `dir` | Directory to scan recursively | `.` | ❌ |
+| `--bitrate` | Target video bitrate in kbps (max = bitrate + 1000) | `TARGET_BR` env | ❌ |
+| `--crf` | CRF quality mode (lower = better, e.g. 23) | `DEFAULT_CRF` env | ❌ |
+| `--exclude` | Comma-separated directory names to skip (always excludes `.trickplay`) | `""` | ❌ |
+| **Encoder** | | | |
+| `--use` | Transcode profile: `nvidia`, `amdgpu`, `intel`, `vaapi`, `cpu`, or a raw ffmpeg encoder name | `nvidia` | ❌ |
+| `-j`, `--workers` | Number of local files to process concurrently. `1` keeps the original sequential behavior. Remote mode remains sequential. | `1` | ❌ |
+| `--verbose` | Verbose logging (debug output) | off | ❌ |
+| **Logging** | | | |
+| `--log-file` | Path to write a log file | none | ❌ |
+| **Remote** | | | |
+| `--remote` | Remote target (`user@host:/path`) | `""` | ❌ |
+| `--local-tmp` | Local temp directory for remote mode | `/tmp/convert-remote` | ❌ |
+| **Cleanup** | | | |
+| `--cleanup-tmp` | Full recursive temp-file cleanup before scan | off | ❌ |
+
+### Worker guidance
+
+Start small. More workers is not always faster because encoders, disks, and GPUs have limits.
+
+| Encoder | Suggested workers |
+|---|---|
+| NVIDIA NVENC | `2` |
+| AMD AMF / VAAPI | `2` |
+| Intel QSV | `2` to `4` |
+| CPU / libx264 | `2` to `4`, depending on CPU cores |
+
+If conversions start failing with encoder errors, lower `--workers`.
+
+## 📋 Requirements
 
 - Python 3.10+
 - `ffmpeg` and `ffprobe` in `PATH`
-- GPU encoder support if using hardware profiles
-
-Verify tools:
+- GPU encoder drivers if using hardware profiles
 
 ```bash
 ffmpeg -version
 ffprobe -version
 ```
 
-## Environment Configuration
+## ⚙️ Configuration
 
 Create a `.env` file in the project root:
 
@@ -67,38 +106,3 @@ Optional binary overrides:
 FFMPEG_BIN=/usr/bin/ffmpeg
 FFPROBE_BIN=/usr/bin/ffprobe
 ```
-
-## LLM Usage
-
-If you are using this repository from an LLM agent (Copilot, ChatGPT, Claude, etc.), use this minimal workflow:
-
-1. **Read-only preview first**
-
-```bash
-python scan.py /path/to/media
-```
-
-2. **Run conversion with explicit encoder**
-
-```bash
-python convert.py /path/to/media --use nvidia
-```
-
-3. **Fallback to CPU when GPU encoder is unavailable**
-
-```bash
-python convert.py /path/to/media --use cpu --crf 23
-```
-
-4. **Use logs for audit/debug**
-
-```bash
-python convert.py /path/to/media --log-file convert.log --verbose
-```
-
-LLM-safe notes:
-
-- Prefer `scan.py` before any write operation.
-- Do not delete `done.txt`; it prevents repeated conversions.
-- Check `size-report.csv` after runs to verify expected size reduction.
-- Keep `.env` values explicit in prompts to avoid accidental quality/bitrate changes.

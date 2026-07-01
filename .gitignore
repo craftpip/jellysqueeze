@@ -6,3 +6,23 @@ done.txt
 __pycache__/
 size-report.csv
 venv/
+.venv/
+convert.sh
+logs/
+
+# Environment / secrets
+.env
+
+# Runtime artifacts
+*.log
+nohup.out
+o.txt
+probe-cache.json
+
+# Scan output files
+escan*
+fscan*
+
+# Platform-specific scripts
+work.bat
+pastlivestreams.log

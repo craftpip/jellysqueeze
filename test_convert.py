@@ -202,10 +202,39 @@ def test_multiple_files():
     print("TEST 7 PASSED\n")
 
 
+def test_normalize_library_paths():
+    """Test: library config keeps every configured path."""
+    print("\n" + "=" * 50)
+    print("TEST 8: normalize library paths")
+    print("=" * 50)
+
+    lib = {
+        "name": "Movies",
+        "paths": ["/mnt/media/movies-a", "/mnt/media/movies-b"],
+        "path": "/mnt/media/movies-a",
+    }
+
+    paths = convert.normalize_library_paths(lib)
+    assert paths == ["/mnt/media/movies-a", "/mnt/media/movies-b"], f"Unexpected paths: {paths}"
+
+    config = {
+        "libraries": [
+            {"name": "Movies", "paths": ["/mnt/media/movies-a", "/mnt/media/movies-b"], "profile": "movies"}
+        ],
+        "profiles": {"movies": {"target_bitrate": 3000}},
+    }
+    lib_info = convert.find_library_config(config, "Movies")
+    assert lib_info is not None, "Expected library config to be found"
+    assert lib_info[0] == ["/mnt/media/movies-a", "/mnt/media/movies-b"], f"Unexpected lib info: {lib_info}"
+
+    print(f"✓ Multi-path libraries preserved: {paths}")
+    print("TEST 8 PASSED\n")
+
+
 def test_real_video_file():
     """Test: Using actual video file from test_files."""
     print("\n" + "=" * 50)
-    print("TEST 8: Real video file tracking")
+    print("TEST 9: Real video file tracking")
     print("=" * 50)
     clean_done()
     
@@ -244,6 +273,7 @@ def main():
         test_allow_different_option()
         test_crf_to_bitrate()
         test_multiple_files()
+        test_normalize_library_paths()
         test_real_video_file()
         
         print("=" * 60)
