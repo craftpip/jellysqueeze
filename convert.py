@@ -59,7 +59,7 @@ VAAPI_DECODABLE_CODECS = {"h264", "hevc", "vp9", "mpeg2video", "vc1"}
 
 HWACCEL_DECODABLE = {
     "nvidia": CUDA_DECODABLE_CODECS,
-    "intel": QSV_DECODABLE_CODECS,
+    "intel": VAAPI_DECODABLE_CODECS,
     "amdgpu": VAAPI_DECODABLE_CODECS,
     "vaapi": VAAPI_DECODABLE_CODECS,
 }
@@ -93,7 +93,7 @@ TRANSCODER_ALIASES = {
 TRANSCODER_ENCODERS = {
     "nvidia": "h264_nvenc",
     "amdgpu": "h264_amf",
-    "intel": "h264_qsv",
+    "intel": "h264_vaapi",
     "cpu": "libx264",
     "vaapi": "h264_vaapi",
 }
@@ -770,8 +770,41 @@ def probe_streams(file):
             lang = (tags.get("language") or "und").strip().lower()
             auds.append((idx, lang, is_default_stream(s)))
         elif st == "subtitle":
-            subs.append((idx, codec))
+            tags = s.get("tags") or {}
+            lang = (tags.get("language") or "und").strip().lower()
+            subs.append((idx, codec, lang))
     return vids, auds, subs
+
+
+def extract_external_subtitles(file: Path, subs: list) -> list[Path]:
+    extracted: list[Path] = []
+    seen_langs: set[str] = set()
+    for idx, codec, lang in subs:
+        if codec not in TEXT_SUB_CODECS:
+            log.info(f"Skipping image-based subtitle track {idx} ({codec})")
+            continue
+        if lang in seen_langs:
+            log.warning(f"Skipping duplicate subtitle track {idx} ({lang}) — already extracted one for this language")
+            continue
+        seen_langs.add(lang)
+        srt_name = f"{file.stem}.{lang}.srt"
+        srt_file = file.with_name(srt_name)
+        cmd = [
+            FFMPEG_CMD, "-hide_banner", "-loglevel", "error", "-y",
+            "-i", str(file),
+            "-map", f"0:{idx}",
+            "-c:s", "srt",
+            str(srt_file),
+        ]
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            if srt_file.exists() and srt_file.stat().st_size > 0:
+                extracted.append(srt_file)
+                log.info(f"Extracted external subtitle: {srt_file.name}")
+        except subprocess.CalledProcessError:
+            log.warning(f"Failed to extract subtitle track {idx} from {file.name}")
+    log.info(f"Extracted {len(extracted)} external subtitle file(s) for {file.name}")
+    return extracted
 
 
 def pick_primary_video(vids):
@@ -882,7 +915,7 @@ def expected_output_signature(in_file: Path, drop_subtitles: bool, active_encode
     if drop_subtitles:
         out_subs: tuple[str, ...] = ()
     elif ext == ".mkv":
-        out_subs = tuple(codec for _idx, codec in subs if codec in MKV_SUB_CODECS)
+        out_subs = tuple(codec for _idx, codec, _lang in subs if codec in MKV_SUB_CODECS)
     elif ext in {".mp4", ".mov"}:
         out_subs = tuple("mov_text" for _idx, codec in subs if codec in TEXT_SUB_CODECS)
     else:
@@ -1075,12 +1108,12 @@ def build_ffmpeg_cmd(
     if drop_subtitles:
         sub_mode = "none"
     elif ext == ".mkv":
-        for idx, codec in subs:
+        for idx, codec, _lang in subs:
             if codec in MKV_SUB_CODECS:
                 maps += ["-map", f"0:{idx}"]
         sub_mode = "copy"
     elif ext in {".mp4", ".mov"}:
-        for idx, codec in subs:
+        for idx, codec, _lang in subs:
             if codec in TEXT_SUB_CODECS:
                 maps += ["-map", f"0:{idx}"]
         sub_mode = "mov_text"
@@ -1097,7 +1130,7 @@ def build_ffmpeg_cmd(
         elif active_profile == "nvidia":
             hwaccel_args = ["-hwaccel", "cuda"]
         elif active_profile == "intel":
-            hwaccel_args = ["-hwaccel", "qsv"]
+            hwaccel_args = ["-hwaccel", "vaapi"]
         elif active_profile == "amdgpu":
             hwaccel_args = ["-hwaccel", "vaapi"]
         elif active_profile == "vaapi" or active_encoder.endswith("_vaapi"):
@@ -1116,31 +1149,47 @@ def build_ffmpeg_cmd(
         cmd += ["-preset", "p4", "-pix_fmt", "yuv420p"]
     elif active_profile == "amdgpu":
         cmd += ["-usage", "transcoding", "-quality", "balanced", "-pix_fmt", "yuv420p"]
-    elif active_profile == "intel":
-        cmd += ["-preset", "medium", "-pix_fmt", "yuv420p"]
-    elif active_profile == "cpu":
-        cmd += ["-preset", "medium", "-pix_fmt", "yuv420p"]
-    elif active_profile == "vaapi" or active_encoder.endswith("_vaapi"):
+    elif active_profile == "intel" or active_profile == "vaapi" or active_encoder.endswith("_vaapi"):
         cmd += ["-vaapi_device", "/dev/dri/renderD128", "-vf", "format=nv12,hwupload"]
 
     if crf is not None:
-        cmd += [
-            "-c:v", f"{active_encoder}",
-            "-crf", str(crf),
-            "-c:a", "aac",
-            "-ac:a", "2",
-            "-max_muxing_queue_size", "1024",
-        ]
+        if active_encoder.endswith("_vaapi"):
+            cmd += [
+                "-c:v", f"{active_encoder}",
+                "-global_quality", str(crf),
+                "-c:a", "aac",
+                "-ac:a", "2",
+                "-max_muxing_queue_size", "1024",
+            ]
+        else:
+            cmd += [
+                "-c:v", f"{active_encoder}",
+                "-crf", str(crf),
+                "-c:a", "aac",
+                "-ac:a", "2",
+                "-max_muxing_queue_size", "1024",
+            ]
     else:
-        cmd += [
-            "-c:v", f"{active_encoder}",
-            "-b:v", f"{TARGET_BR}k",
-            "-maxrate", f"{MAX_BR}k",
-            "-bufsize", f"{BUFSIZE}k",
-            "-c:a", "aac",
-            "-ac:a", "2",
-            "-max_muxing_queue_size", "1024",
-        ]
+        if active_encoder.endswith("_vaapi"):
+            # VAAPI driver only supports CQP mode, approximate bitrate via global_quality
+            quality = max(18, min(30, 30 - (TARGET_BR - 1000) // 500))
+            cmd += [
+                "-c:v", f"{active_encoder}",
+                "-global_quality", str(quality),
+                "-c:a", "aac",
+                "-ac:a", "2",
+                "-max_muxing_queue_size", "1024",
+            ]
+        else:
+            cmd += [
+                "-c:v", f"{active_encoder}",
+                "-b:v", f"{TARGET_BR}k",
+                "-maxrate", f"{MAX_BR}k",
+                "-bufsize", f"{BUFSIZE}k",
+                "-c:a", "aac",
+                "-ac:a", "2",
+                "-max_muxing_queue_size", "1024",
+            ]
 
     if sub_mode == "copy":
         cmd += ["-c:s", "copy"]
@@ -1169,6 +1218,14 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
         if br <= TARGET_BR + BITRATE_TOLERANCE:
             return "SKIP", f"ok({br}kbps)", None
 
+    # Extract text-based subtitles to external SRT files so the video output
+    # can drop all subtitle streams, allowing direct play on any device.
+    streams_for_subs = probe_streams(file)
+    if streams_for_subs:
+        _vids, _auds, subs = streams_for_subs
+        if subs:
+            extract_external_subtitles(file, subs)
+
     tmp = tmp_name_for(file)
     resume_tmp = resume_name_for(file)
     merge_tmp = merge_name_for(file)
@@ -1190,13 +1247,12 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
         log.info(f"Resume: found partial temp for {file.name} at {resume_seconds:.1f}s")
 
     attempts = [
-        ("normal", {}),
-        ("software_decode", {"disable_hwaccel": True}),
-        ("software_decode_no_subs", {"disable_hwaccel": True, "drop_subtitles": True}),
+        ("normal", {"drop_subtitles": True}),
+        ("software_decode", {"disable_hwaccel": True, "drop_subtitles": True}),
     ]
     if TRANSCODER != "libx264" and "libx264" in get_available_encoders():
         attempts.append((
-            "cpu_no_subs",
+            "cpu",
             {"disable_hwaccel": True, "drop_subtitles": True, "encoder": "libx264", "encoder_profile": "cpu"},
         ))
 
@@ -1261,7 +1317,7 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
                         if "=" not in rl:
                             continue
                         k, _, v = rl.partition("=")
-                        if k == "out_time_us" and dur and dur > 0:
+                        if k == "out_time_us" and dur and dur > 0 and v != "N/A":
                             pct = in_progress_pct((seek_seconds + int(v) / 1000000) / dur * 100)
                             now = time.time()
                             if now - last_up >= 0.5:
@@ -1718,6 +1774,15 @@ def main(
     return ok, skip, fail, total_saved_mb
 
 
+def _cleanup_local_tmp(local_file: Path, local_tmp_conv: Path, local_tmp: Path):
+    for p in list(local_tmp.glob(f"{local_file.stem}.*.srt")) + [local_file, local_tmp_conv]:
+        try:
+            if p.exists():
+                p.unlink()
+        except Exception:
+            pass
+
+
 def main_remote(host: str, remote_dir: str, local_tmp: Path, crf: int | None = None, verbose: bool = False):
     """Remote mode: download each file, convert locally with GPU, upload back."""
     local_tmp.mkdir(parents=True, exist_ok=True)
@@ -1761,46 +1826,39 @@ def main_remote(host: str, remote_dir: str, local_tmp: Path, crf: int | None = N
 
             log.info(f"[{i}/{total}] Uploading converted file...")
             if scp_upload(local_file, f"{host}:{remote_file}"):
-                ok += 1
-                done[remote_file] = current_opt
-                save_done(done)
-                if size_row:
-                    size_rows.append((Path(remote_file).name, size_row[1], size_row[2]))
-                log.info(f"[{i}/{total}] OK: {remote_file} :: {msg}")
+                srt_upload_ok = True
+                for srt_file in local_tmp.glob(f"{local_file.stem}.*.srt"):
+                    remote_srt = f"{remote_dest_dir}/{srt_file.name}"
+                    if scp_upload(srt_file, f"{host}:{remote_srt}"):
+                        log.info(f"Uploaded external subtitle: {srt_file.name}")
+                    else:
+                        log.warning(f"Failed to upload subtitle: {srt_file.name}")
+                        srt_upload_ok = False
+                if srt_upload_ok:
+                    ok += 1
+                    done[remote_file] = current_opt
+                    save_done(done)
+                    if size_row:
+                        size_rows.append((Path(remote_file).name, size_row[1], size_row[2]))
+                    log.info(f"[{i}/{total}] OK: {remote_file} :: {msg}")
+                else:
+                    fail += 1
+                    log.error(f"[{i}/{total}] FAIL: {remote_file} :: subtitle_upload_failed")
             else:
                 fail += 1
                 log.error(f"[{i}/{total}] FAIL: {remote_file} :: upload_failed")
 
             # cleanup local temp files
-            try:
-                local_file.unlink()
-            except Exception:
-                pass
-            if local_tmp_conv.exists():
-                try:
-                    local_tmp_conv.unlink()
-                except Exception:
-                    pass
+            _cleanup_local_tmp(local_file, local_tmp_conv, local_tmp)
 
         elif status == "SKIP":
             skip += 1
             log.info(f"[{i}/{total}] SKIP: {remote_file} :: {msg}")
-            try:
-                local_file.unlink()
-            except Exception:
-                pass
+            _cleanup_local_tmp(local_file, local_tmp_conv, local_tmp)
         else:
             fail += 1
             log.error(f"[{i}/{total}] FAIL: {remote_file} :: {msg}")
-            try:
-                local_file.unlink()
-            except Exception:
-                pass
-            if local_tmp_conv.exists():
-                try:
-                    local_tmp_conv.unlink()
-                except Exception:
-                    pass
+            _cleanup_local_tmp(local_file, local_tmp_conv, local_tmp)
 
     append_size_report(size_rows)
     log.info(f"Done. OK={ok} SKIP={skip} FAIL={fail}")
