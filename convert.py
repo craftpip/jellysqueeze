@@ -41,9 +41,10 @@ LOGS_DIR = Path(__file__).parent / "logs"
 
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".mov", ".webm", ".ts", ".flv", ".wmv"}
 TMP_TAG = ".__transcoding__"  # temp name keeps same container (ext at end)
+ORIGINAL_TAG = ".__original__"
 DEFAULT_EXCLUDE_DIRS = {".git", ".trickplay"}
 
-H264_OK_CONTAINERS = {".mkv", ".mp4", ".mov", ".ts", ".flv", ".avi"}
+H264_OK_CONTAINERS = {".mkv", ".mp4", ".mov"}
 TEXT_SUB_CODECS = {"subrip", "srt", "ass", "ssa", "webvtt", "mov_text"}
 MKV_SUB_CODECS = TEXT_SUB_CODECS | {"hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle"}
 ALLOWED_AUDIO_LANGS = {
@@ -51,6 +52,8 @@ ALLOWED_AUDIO_LANGS = {
     "jpn", "ja", "japanese",
     "hin", "hi", "hindi",
 }
+ALLOWED_SUBTITLE_LANGS: set[str] | None = None  # None = use ALLOWED_AUDIO_LANGS
+BACKUP_ORIGINALS = True
 
 # Codecs supported by each profile's hardware decoder (common codecs across most GPUs)
 CUDA_DECODABLE_CODECS = {"h264", "hevc", "vp9", "mpeg1video", "mpeg2video", "vc1"}
@@ -359,9 +362,13 @@ def load_done() -> dict[str, str]:
 
 def save_done(done: dict[str, str]) -> None:
     DONE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with DONE_FILE.open("w", encoding="utf-8") as f:
+    tmp = DONE_FILE.with_suffix(DONE_FILE.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
         for path, opt in done.items():
             f.write(f"{path}|{opt}\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, DONE_FILE)
 
 
 def append_size_report(rows: list[tuple[str, int, int]]) -> None:
@@ -420,7 +427,7 @@ def get_profile_settings(config: dict, profile_name: str) -> dict | None:
 
 
 def set_profile_globals(profile: dict) -> None:
-    global TARGET_BR, MAX_BR, BUFSIZE, BITRATE_TOLERANCE, TRANSCODER, TRANSCODER_PROFILE, ALLOWED_AUDIO_LANGS
+    global TARGET_BR, MAX_BR, BUFSIZE, BITRATE_TOLERANCE, TRANSCODER, TRANSCODER_PROFILE, ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS
     if "target_bitrate" in profile:
         TARGET_BR = int(profile["target_bitrate"])
     if "max_bitrate" in profile:
@@ -434,6 +441,8 @@ def set_profile_globals(profile: dict) -> None:
             log.warning(f"Profile encoder '{profile['encoder']}' not available: {err}")
     if "keep_audio_langs" in profile:
         ALLOWED_AUDIO_LANGS = set(lang.strip().lower() for lang in profile["keep_audio_langs"])
+    if "keep_subtitle_langs" in profile:
+        ALLOWED_SUBTITLE_LANGS = set(lang.strip().lower() for lang in profile["keep_subtitle_langs"])
 
 
 def normalize_library_paths(lib: dict) -> list[str]:
@@ -488,8 +497,9 @@ def run_library_scan(
     dry_run: bool = False,
     min_savings_pct: int = 0,
     profile: dict | None = None,
+    ignore_paths: list[str] | None = None,
 ) -> tuple[int, int, int, float, bool]:
-    global TARGET_BR, MAX_BR, BITRATE_TOLERANCE, TRANSCODER, TRANSCODER_PROFILE, ALLOWED_AUDIO_LANGS
+    global TARGET_BR, MAX_BR, BITRATE_TOLERANCE, TRANSCODER, TRANSCODER_PROFILE, ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS
 
     if profile:
         old_br = TARGET_BR
@@ -498,11 +508,13 @@ def run_library_scan(
         old_encoder = TRANSCODER
         old_profile = TRANSCODER_PROFILE
         old_langs = set(ALLOWED_AUDIO_LANGS)
+        old_sub_langs = set(ALLOWED_SUBTITLE_LANGS) if ALLOWED_SUBTITLE_LANGS is not None else None
         set_profile_globals(profile)
     else:
         old_br = old_max = old_tolerance = 0
         old_encoder = old_profile = ""
         old_langs = set()
+        old_sub_langs = None
 
     total_ok = total_skip = total_fail = 0
     total_space_mb = 0.0
@@ -514,15 +526,19 @@ def run_library_scan(
             if not path_obj.exists() or not path_obj.is_dir():
                 log.warning(f"Library '{library_name}' path not found: {path_obj}, skipping")
                 continue
+            if ignore_paths and any(seg in str(path_obj) for seg in ignore_paths):
+                log.info(f"Ignoring path (--ignore-path match): {path_obj}")
+                continue
 
             scanned_any = True
             if len(lib_paths) > 1:
                 log.info(f"Path: {path_obj}")
 
+            profile_min_savings = max(min_savings_pct, int(profile.get("minimum_savings_percent", 0)) if profile else 0)
             ok, skip, fail, space_mb = main(
                 str(path_obj), crf, verbose,
                 parse_exclude_dirs(""), False, workers,
-                min_savings_pct, dry_run,
+                profile_min_savings, dry_run, ignore_paths,
             )
             total_ok += ok
             total_skip += skip
@@ -538,6 +554,7 @@ def run_library_scan(
             TRANSCODER = old_encoder
             TRANSCODER_PROFILE = old_profile
             ALLOWED_AUDIO_LANGS = old_langs
+            ALLOWED_SUBTITLE_LANGS = old_sub_langs
 
 
 def make_auto_log_path(mode: str) -> Path:
@@ -658,13 +675,13 @@ def discover_videos_and_cleanup(root: Path, excludes: set[str], progress_every: 
                         ext = p.suffix.lower()
 
                         # Keep partial transcoding files so interrupted work can resume later.
-                        if TMP_TAG in name and ext in VIDEO_EXTS:
+                        if (TMP_TAG in name or ORIGINAL_TAG in name) and ext in VIDEO_EXTS:
                             continue
 
                         if ".trickplay" in low_name:
                             continue
 
-                        if ext in VIDEO_EXTS and TMP_TAG not in name:
+                        if ext in VIDEO_EXTS and TMP_TAG not in name and ORIGINAL_TAG not in name:
                             files.append(p)
 
                     if progress_every > 0 and scanned_entries % progress_every == 0:
@@ -776,37 +793,6 @@ def probe_streams(file):
     return vids, auds, subs
 
 
-def extract_external_subtitles(file: Path, subs: list) -> list[Path]:
-    extracted: list[Path] = []
-    seen_langs: set[str] = set()
-    for idx, codec, lang in subs:
-        if codec not in TEXT_SUB_CODECS:
-            log.info(f"Skipping image-based subtitle track {idx} ({codec})")
-            continue
-        if lang in seen_langs:
-            log.warning(f"Skipping duplicate subtitle track {idx} ({lang}) — already extracted one for this language")
-            continue
-        seen_langs.add(lang)
-        srt_name = f"{file.stem}.{lang}.srt"
-        srt_file = file.with_name(srt_name)
-        cmd = [
-            FFMPEG_CMD, "-hide_banner", "-loglevel", "error", "-y",
-            "-i", str(file),
-            "-map", f"0:{idx}",
-            "-c:s", "srt",
-            str(srt_file),
-        ]
-        try:
-            subprocess.run(cmd, capture_output=True, text=True, check=True)
-            if srt_file.exists() and srt_file.stat().st_size > 0:
-                extracted.append(srt_file)
-                log.info(f"Extracted external subtitle: {srt_file.name}")
-        except subprocess.CalledProcessError:
-            log.warning(f"Failed to extract subtitle track {idx} from {file.name}")
-    log.info(f"Extracted {len(extracted)} external subtitle file(s) for {file.name}")
-    return extracted
-
-
 def pick_primary_video(vids):
     for idx, codec, is_default in vids:
         if is_default:
@@ -818,7 +804,7 @@ def pick_primary_video(vids):
 
 
 def select_audio_streams(auds):
-    selected = [(idx, lang) for idx, lang, _is_default in auds if lang in ALLOWED_AUDIO_LANGS]
+    selected = [(idx, lang) for idx, lang, _is_default in auds if lang in ALLOWED_AUDIO_LANGS or lang == "und"]
     if selected or not auds:
         return selected
 
@@ -830,6 +816,12 @@ def select_audio_streams(auds):
     idx, lang, _is_default = auds[0]
     log.info(f"No preferred audio language found; keeping first audio stream ({lang})")
     return [(idx, lang)]
+
+
+def select_subtitle_streams(subs: list) -> list[tuple[int, str, str]]:
+    allowed = ALLOWED_SUBTITLE_LANGS if ALLOWED_SUBTITLE_LANGS is not None else ALLOWED_AUDIO_LANGS
+    selected = [(idx, codec, lang) for idx, codec, lang in subs if lang in allowed]
+    return selected
 
 
 def probe_video_codec(file) -> str | None:
@@ -850,6 +842,38 @@ def probe_video_codec(file) -> str | None:
 
 def tmp_name_for(file: Path) -> Path:
     return file.with_name(file.stem + TMP_TAG + file.suffix)
+
+
+def original_backup_name_for(file: Path) -> Path:
+    return file.with_name(file.stem + ORIGINAL_TAG + file.suffix)
+
+
+def source_fingerprint(file: Path) -> tuple[int, int, int, int] | None:
+    try:
+        stat = file.stat()
+    except OSError:
+        return None
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns
+
+
+def create_original_backup(file: Path) -> tuple[bool, str]:
+    backup = original_backup_name_for(file)
+    if backup.exists():
+        return False, f"backup_exists({backup.name})"
+    try:
+        os.link(file, backup)
+    except OSError:
+        try:
+            shutil.copy2(file, backup)
+        except OSError as exc:
+            return False, f"backup_failed({exc})"
+    try:
+        if backup.stat().st_size != file.stat().st_size:
+            backup.unlink()
+            return False, "backup_size_mismatch"
+    except OSError as exc:
+        return False, f"backup_verify_failed({exc})"
+    return True, str(backup)
 
 
 def cleanup_tmp_files(root: Path):
@@ -883,7 +907,7 @@ def expected_output_video_codec(active_encoder: str) -> str:
 
 
 def probe_output_signature(file: Path) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]] | None:
-    data = ffprobe_json(file, "stream=codec_type,codec_name:stream_disposition=attached_pic")
+    data = ffprobe_json(file, "stream=codec_type,codec_name:stream_tags=language:stream_disposition=attached_pic")
     if not data or "streams" not in data:
         return None
 
@@ -896,35 +920,43 @@ def probe_output_signature(file: Path) -> tuple[tuple[str, ...], tuple[str, ...]
         if st == "video" and not is_attached_pic_stream(s):
             vids.append(codec)
         elif st == "audio":
-            auds.append(codec)
+            lang = ((s.get("tags") or {}).get("language") or "und").strip().lower()
+            auds.append(f"{codec}:{lang}")
         elif st == "subtitle":
-            subs.append(codec)
+            lang = ((s.get("tags") or {}).get("language") or "und").strip().lower()
+            subs.append(f"{codec}:{lang}")
     return tuple(vids), tuple(auds), tuple(subs)
 
 
-def expected_output_signature(in_file: Path, drop_subtitles: bool, active_encoder: str) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]] | None:
+def expected_output_signature(in_file: Path, active_encoder: str) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]] | None:
     streams = probe_streams(in_file)
     if not streams:
         return None
 
     _vids, auds, subs = streams
+    data = ffprobe_json(in_file, "stream=index,codec_type,codec_name:stream_tags=language")
+    if not data or "streams" not in data:
+        return None
+    audio_codecs = {
+        s.get("index"): (s.get("codec_name") or "").lower()
+        for s in data["streams"]
+        if s.get("codec_type") == "audio"
+    }
     out_vids = (expected_output_video_codec(active_encoder),)
-    out_auds = tuple("aac" for _ in select_audio_streams(auds))
+    out_auds = tuple(f"{audio_codecs.get(idx, '')}:{lang}" for idx, lang in select_audio_streams(auds))
 
     ext = in_file.suffix.lower()
-    if drop_subtitles:
-        out_subs: tuple[str, ...] = ()
-    elif ext == ".mkv":
-        out_subs = tuple(codec for _idx, codec, _lang in subs if codec in MKV_SUB_CODECS)
+    if ext == ".mkv":
+        out_subs: tuple[str, ...] = tuple(f"{codec}:{lang}" for _idx, codec, lang in select_subtitle_streams(subs))
     elif ext in {".mp4", ".mov"}:
-        out_subs = tuple("mov_text" for _idx, codec in subs if codec in TEXT_SUB_CODECS)
+        out_subs = tuple(f"mov_text:{lang}" for _idx, codec, lang in select_subtitle_streams(subs) if codec in TEXT_SUB_CODECS)
     else:
         out_subs = ()
     return out_vids, out_auds, out_subs
 
 
-def can_resume_partial(in_file: Path, partial: Path, drop_subtitles: bool, active_encoder: str) -> tuple[bool, str]:
-    expected = expected_output_signature(in_file, drop_subtitles, active_encoder)
+def can_resume_partial(in_file: Path, partial: Path, active_encoder: str) -> tuple[bool, str]:
+    expected = expected_output_signature(in_file, active_encoder)
     actual = probe_output_signature(partial)
     if expected is None or actual is None:
         return False, "signature_probe_failed"
@@ -941,6 +973,23 @@ def get_media_duration_seconds(file: Path) -> float | None:
         return float(probe["format"]["duration"])
     except Exception:
         return None
+
+
+def validate_output_media(source: Path, output: Path) -> tuple[bool, str]:
+    source_duration = get_media_duration_seconds(source)
+    output_duration = get_media_duration_seconds(output)
+    if source_duration is None or output_duration is None:
+        return False, "duration_probe_failed"
+    if abs(source_duration - output_duration) > max(2.0, source_duration * 0.01):
+        return False, f"duration_mismatch(source={source_duration:.2f}, output={output_duration:.2f})"
+    result = subprocess.run(
+        [FFMPEG_CMD, "-v", "error", "-xerror", "-i", str(output), "-map", "0", "-f", "null", "-"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False, f"decode_validation_failed({summarize_ffmpeg_error(result.stderr)})"
+    return True, "ok"
 
 
 def get_last_video_packet_pts_seconds(file: Path) -> float | None:
@@ -1081,7 +1130,6 @@ def build_ffmpeg_cmd(
     crf: int | None = None,
     verbose: bool = False,
     disable_hwaccel: bool = False,
-    drop_subtitles: bool = False,
     encoder: str | None = None,
     encoder_profile: str | None = None,
     seek_seconds: float = 0.0,
@@ -1096,6 +1144,9 @@ def build_ffmpeg_cmd(
 
     vids, auds, subs = streams
 
+    if len(vids) != 1:
+        return None, "multiple_or_missing_video_streams"
+
     video_idx, video_codec_from_streams = pick_primary_video(vids)
     if video_idx is None:
         return None, "no_video_stream"
@@ -1104,16 +1155,18 @@ def build_ffmpeg_cmd(
     for i, _lang in select_audio_streams(auds):
         maps += ["-map", f"0:{i}"]
 
+    filtered_subs = select_subtitle_streams(subs)
     sub_mode = "none"
-    if drop_subtitles:
-        sub_mode = "none"
-    elif ext == ".mkv":
-        for idx, codec, _lang in subs:
-            if codec in MKV_SUB_CODECS:
-                maps += ["-map", f"0:{idx}"]
+    if ext == ".mkv":
+        for idx, codec, _lang in filtered_subs:
+            maps += ["-map", f"0:{idx}"]
+        maps += ["-map", "0:t?"]
         sub_mode = "copy"
     elif ext in {".mp4", ".mov"}:
-        for idx, codec, _lang in subs:
+        unsupported_subtitles = [codec for _idx, codec, _lang in filtered_subs if codec not in TEXT_SUB_CODECS]
+        if unsupported_subtitles:
+            return None, f"unsupported_subtitle_codec({','.join(sorted(set(unsupported_subtitles)))})"
+        for idx, codec, _lang in filtered_subs:
             if codec in TEXT_SUB_CODECS:
                 maps += ["-map", f"0:{idx}"]
         sub_mode = "mov_text"
@@ -1157,16 +1210,14 @@ def build_ffmpeg_cmd(
             cmd += [
                 "-c:v", f"{active_encoder}",
                 "-global_quality", str(crf),
-                "-c:a", "aac",
-                "-ac:a", "2",
+                "-c:a", "copy",
                 "-max_muxing_queue_size", "1024",
             ]
         else:
             cmd += [
                 "-c:v", f"{active_encoder}",
                 "-crf", str(crf),
-                "-c:a", "aac",
-                "-ac:a", "2",
+                "-c:a", "copy",
                 "-max_muxing_queue_size", "1024",
             ]
     else:
@@ -1176,8 +1227,7 @@ def build_ffmpeg_cmd(
             cmd += [
                 "-c:v", f"{active_encoder}",
                 "-global_quality", str(quality),
-                "-c:a", "aac",
-                "-ac:a", "2",
+                "-c:a", "copy",
                 "-max_muxing_queue_size", "1024",
             ]
         else:
@@ -1186,17 +1236,15 @@ def build_ffmpeg_cmd(
                 "-b:v", f"{TARGET_BR}k",
                 "-maxrate", f"{MAX_BR}k",
                 "-bufsize", f"{BUFSIZE}k",
-                "-c:a", "aac",
-                "-ac:a", "2",
+                "-c:a", "copy",
                 "-max_muxing_queue_size", "1024",
             ]
 
     if sub_mode == "copy":
         cmd += ["-c:s", "copy"]
+        cmd += ["-c:t", "copy"]
     elif sub_mode == "mov_text":
         cmd += ["-c:s", "mov_text"]
-    else:
-        cmd += ["-sn"]
 
     cmd += [str(out_file)]
     return cmd, None
@@ -1210,6 +1258,9 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
 
     br = get_estimated_bitrate_kbps(file)
     log.info(f"Bitrate: {br} kbps")
+    original_fingerprint = source_fingerprint(file)
+    if original_fingerprint is None:
+        return "FAIL", "source_stat_failed", None
 
     if crf is None:
         if br is None:
@@ -1218,18 +1269,12 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
         if br <= TARGET_BR + BITRATE_TOLERANCE:
             return "SKIP", f"ok({br}kbps)", None
 
-    # Extract text-based subtitles to external SRT files so the video output
-    # can drop all subtitle streams, allowing direct play on any device.
-    streams_for_subs = probe_streams(file)
-    if streams_for_subs:
-        _vids, _auds, subs = streams_for_subs
-        if subs:
-            extract_external_subtitles(file, subs)
-
     tmp = tmp_name_for(file)
     resume_tmp = resume_name_for(file)
     merge_tmp = merge_name_for(file)
-    resume_seconds, src_duration = get_resume_seconds(file, tmp)
+    # Do not stitch partial encodes: stream-copy concat can produce broken timelines.
+    resume_seconds = None
+    src_duration = get_media_duration_seconds(file)
 
     for stale_tmp in (resume_tmp, merge_tmp):
         if stale_tmp.exists():
@@ -1247,13 +1292,13 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
         log.info(f"Resume: found partial temp for {file.name} at {resume_seconds:.1f}s")
 
     attempts = [
-        ("normal", {"drop_subtitles": True}),
-        ("software_decode", {"disable_hwaccel": True, "drop_subtitles": True}),
+        ("normal", {}),
+        ("software_decode", {"disable_hwaccel": True}),
     ]
     if TRANSCODER != "libx264" and "libx264" in get_available_encoders():
         attempts.append((
             "cpu",
-            {"disable_hwaccel": True, "drop_subtitles": True, "encoder": "libx264", "encoder_profile": "cpu"},
+            {"disable_hwaccel": True, "encoder": "libx264", "encoder_profile": "cpu"},
         ))
 
     last_error = "ffmpeg_failed"
@@ -1267,7 +1312,6 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
             resume_ok, resume_reason = can_resume_partial(
                 file,
                 tmp,
-                bool(options.get("drop_subtitles")),
                 attempt_encoder,
             )
 
@@ -1418,16 +1462,33 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
             pass
         return "FAIL", "ffmpeg_failed", None
 
+    expected = expected_output_signature(file, attempt_encoder)
+    actual = probe_output_signature(tmp)
+    if expected is None or actual is None or expected != actual:
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
+        return "FAIL", f"stream_signature_mismatch(expected={expected}, actual={actual})", None
+
+    output_valid, output_error = validate_output_media(file, tmp)
+    if not output_valid:
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
+        return "FAIL", output_error, None
+
     before_size = file.stat().st_size
     after_size = tmp.stat().st_size
 
+    if after_size >= before_size:
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
+        return "SKIP", f"output_larger({after_size} >= {before_size})", None
     if min_savings_pct > 0:
-        if after_size >= before_size:
-            try:
-                tmp.unlink()
-            except Exception:
-                pass
-            return "SKIP", f"output_larger({after_size} >= {before_size})", None
         savings_pct = (1 - after_size / before_size) * 100
         if savings_pct < min_savings_pct:
             try:
@@ -1435,6 +1496,14 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
             except Exception:
                 pass
             return "SKIP", f"savings_too_small({savings_pct:.1f}% < {min_savings_pct}%)", None
+
+    if source_fingerprint(file) != original_fingerprint:
+        return "FAIL", "source_changed_during_conversion", None
+    if BACKUP_ORIGINALS:
+        backup_ok, backup_result = create_original_backup(file)
+        if not backup_ok:
+            return "FAIL", backup_result, None
+        log.info(f"Original backup: {backup_result}")
 
     if not safe_replace(tmp, file):
         try:
@@ -1457,6 +1526,7 @@ def main(
     workers: int = 1,
     min_savings_pct: int = 0,
     dry_run: bool = False,
+    ignore_paths: list[str] | None = None,
 ):
     if not resolve_ffmpeg_tools():
         log.error("FATAL: ffmpeg/ffprobe not found in PATH")
@@ -1465,6 +1535,9 @@ def main(
     root = Path(scan_dir).expanduser().resolve()
     if not root.exists() or not root.is_dir():
         log.error(f"FATAL: not a directory: {root}")
+        return 0, 0, 0, 0.0
+    if ignore_paths and any(seg in str(root) for seg in ignore_paths):
+        log.info(f"Ignoring path (--ignore-path match): {root}")
         return 0, 0, 0, 0.0
 
     excludes = exclude_dirs if exclude_dirs is not None else parse_exclude_dirs("")
@@ -1481,6 +1554,8 @@ def main(
 
     discovery_started = time.perf_counter()
     files, deleted_tmp, scanned_entries = discover_videos_and_cleanup(root, excludes)
+    if ignore_paths:
+        files = [path for path in files if not any(segment in str(path) for segment in ignore_paths)]
     discovery_time = time.perf_counter() - discovery_started
 
     if deleted_tmp:
@@ -1775,7 +1850,7 @@ def main(
 
 
 def _cleanup_local_tmp(local_file: Path, local_tmp_conv: Path, local_tmp: Path):
-    for p in list(local_tmp.glob(f"{local_file.stem}.*.srt")) + [local_file, local_tmp_conv]:
+    for p in [local_file, local_tmp_conv]:
         try:
             if p.exists():
                 p.unlink()
@@ -1784,6 +1859,10 @@ def _cleanup_local_tmp(local_file: Path, local_tmp_conv: Path, local_tmp: Path):
 
 
 def main_remote(host: str, remote_dir: str, local_tmp: Path, crf: int | None = None, verbose: bool = False):
+    """Remote overwrite mode is disabled until atomic remote replacement is implemented."""
+    log.error("FATAL: remote mode is disabled for media safety; use a local mounted path instead")
+    return
+
     """Remote mode: download each file, convert locally with GPU, upload back."""
     local_tmp.mkdir(parents=True, exist_ok=True)
 
@@ -1826,24 +1905,12 @@ def main_remote(host: str, remote_dir: str, local_tmp: Path, crf: int | None = N
 
             log.info(f"[{i}/{total}] Uploading converted file...")
             if scp_upload(local_file, f"{host}:{remote_file}"):
-                srt_upload_ok = True
-                for srt_file in local_tmp.glob(f"{local_file.stem}.*.srt"):
-                    remote_srt = f"{remote_dest_dir}/{srt_file.name}"
-                    if scp_upload(srt_file, f"{host}:{remote_srt}"):
-                        log.info(f"Uploaded external subtitle: {srt_file.name}")
-                    else:
-                        log.warning(f"Failed to upload subtitle: {srt_file.name}")
-                        srt_upload_ok = False
-                if srt_upload_ok:
-                    ok += 1
-                    done[remote_file] = current_opt
-                    save_done(done)
-                    if size_row:
-                        size_rows.append((Path(remote_file).name, size_row[1], size_row[2]))
-                    log.info(f"[{i}/{total}] OK: {remote_file} :: {msg}")
-                else:
-                    fail += 1
-                    log.error(f"[{i}/{total}] FAIL: {remote_file} :: subtitle_upload_failed")
+                ok += 1
+                done[remote_file] = current_opt
+                save_done(done)
+                if size_row:
+                    size_rows.append((Path(remote_file).name, size_row[1], size_row[2]))
+                log.info(f"[{i}/{total}] OK: {remote_file} :: {msg}")
             else:
                 fail += 1
                 log.error(f"[{i}/{total}] FAIL: {remote_file} :: upload_failed")
@@ -1864,7 +1931,7 @@ def main_remote(host: str, remote_dir: str, local_tmp: Path, crf: int | None = N
     log.info(f"Done. OK={ok} SKIP={skip} FAIL={fail}")
 
 
-def main_all(crf: int | None = None, verbose: bool = False, workers: int = 1, dry_run: bool = False, min_savings_pct: int = 0):
+def main_all(crf: int | None = None, verbose: bool = False, workers: int = 1, dry_run: bool = False, min_savings_pct: int = 0, ignore_paths: list[str] | None = None):
     config = load_config()
     if not config:
         log.error("FATAL: config.yml not found or invalid")
@@ -1896,7 +1963,7 @@ def main_all(crf: int | None = None, verbose: bool = False, workers: int = 1, dr
 
         log.info(f"=== Library: {lib_name} ===")
         ok, skip, fail, space_mb, scanned_any = run_library_scan(
-            lib_name, lib_paths, crf, verbose, workers, dry_run, min_savings_pct, profile
+            lib_name, lib_paths, crf, verbose, workers, dry_run, min_savings_pct, profile, ignore_paths
         )
         if not scanned_any:
             continue
@@ -1923,6 +1990,7 @@ def main_library(
     workers: int = 1,
     dry_run: bool = False,
     min_savings_pct: int = 0,
+    ignore_paths: list[str] | None = None,
 ):
     if isinstance(library_names, str):
         requested_names = parse_name_list(library_names)
@@ -1958,7 +2026,7 @@ def main_library(
 
         log.info(f"=== Library: {library_name} ===")
         ok, skip, fail, space_mb, scanned_any = run_library_scan(
-            library_name, lib_paths, crf, verbose, workers, dry_run, min_savings_pct, profile
+            library_name, lib_paths, crf, verbose, workers, dry_run, min_savings_pct, profile, ignore_paths
         )
         if not scanned_any:
             log.error(f"FATAL: library '{library_name}' has no valid paths")
@@ -1985,6 +2053,7 @@ def main_jellyfin_recent(
     workers: int = 1,
     dry_run: bool = False,
     min_savings_pct: int = 0,
+    ignore_paths: list[str] | None = None,
 ):
     try:
         from jellyfin_client import JellyfinClient
@@ -2005,8 +2074,12 @@ def main_jellyfin_recent(
             log.info(f"Jellyfin library '{lib_name}': found {len(items)} recently added/updated item(s)")
             for item in items:
                 p = Path(item["path"])
-                if p.exists():
-                    all_recent_files.append((p, lib_name.strip()))
+                if not p.exists():
+                    continue
+                if ignore_paths and any(seg in str(p) for seg in ignore_paths):
+                    log.info(f"Ignoring (--ignore-path match): {p}")
+                    continue
+                all_recent_files.append((p, lib_name.strip()))
         except Exception as e:
             log.warning(f"Failed to query Jellyfin library '{lib_name}': {e}")
 
@@ -2052,6 +2125,7 @@ def main_jellyfin_recent(
                     old_encoder = TRANSCODER
                     old_profile = TRANSCODER_PROFILE
                     old_langs = set(ALLOWED_AUDIO_LANGS)
+                    old_sub_langs = set(ALLOWED_SUBTITLE_LANGS) if ALLOWED_SUBTITLE_LANGS is not None else None
                     set_profile_globals(profile)
 
         if done.get(path) == current_opt:
@@ -2144,6 +2218,7 @@ Modes:
     parser.add_argument("--local-tmp", default="", help="Local temp dir for remote mode")
     parser.add_argument("--log-file", default="", help="Path to log file (optional)")
     parser.add_argument("--exclude", default="", help="Comma-separated directory names to skip")
+    parser.add_argument("--ignore-path", action="append", default=[], help="Skip paths containing this substring (repeatable, e.g. --ignore-path media1t)")
     parser.add_argument("--cleanup-tmp", action="store_true", help="Clean temp files before discovery")
     parser.add_argument("--use", default="nvidia", help="Transcoder profile or ffmpeg encoder name")
     parser.add_argument("-j", "--workers", type=int, default=1, help="Number of files to process concurrently")
@@ -2155,10 +2230,13 @@ Modes:
     parser.add_argument("--since-hours", type=int, default=72, help="Hours back for recent items (default: 72)")
     parser.add_argument("--dry-run", action="store_true", help="Preview what would be done without modifying files")
     parser.add_argument("--min-savings", type=int, default=0, help="Minimum savings percent to keep converted file (default: 0 = disabled)")
+    parser.add_argument("--no-backup-original", action="store_true", help="Do not keep an original-file backup (unsafe)")
     args = parser.parse_args()
 
     log_path = Path(args.log_file).expanduser().resolve() if args.log_file else None
     min_savings_pct = args.min_savings if args.min_savings is not None else DEFAULT_MIN_SAVINGS_PCT
+    ignore_paths: list[str] = args.ignore_path or []
+    BACKUP_ORIGINALS = not args.no_backup_original
 
     # Determine mode for auto log path
     mode_name = "direct"
@@ -2206,7 +2284,7 @@ Modes:
             encoder=TRANSCODER, target_br=TARGET_BR, max_br=MAX_BR,
             dry_run=args.dry_run, log_path=startup_log_path, workers=args.workers)
         try:
-            main_all(crf, args.verbose, args.workers, args.dry_run, min_savings_pct)
+            main_all(crf, args.verbose, args.workers, args.dry_run, min_savings_pct, ignore_paths)
         except Exception:
             log.exception("Unhandled exception")
     elif args.library:
@@ -2215,7 +2293,7 @@ Modes:
             encoder=TRANSCODER, target_br=TARGET_BR, max_br=MAX_BR,
             dry_run=args.dry_run, log_path=startup_log_path, workers=args.workers)
         try:
-            main_library(library_names, crf, args.verbose, args.workers, args.dry_run, min_savings_pct)
+            main_library(library_names, crf, args.verbose, args.workers, args.dry_run, min_savings_pct, ignore_paths)
         except Exception:
             log.exception("Unhandled exception")
     elif args.jellyfin_recent:
@@ -2227,7 +2305,7 @@ Modes:
             encoder=TRANSCODER, target_br=TARGET_BR, max_br=MAX_BR,
             dry_run=args.dry_run, log_path=startup_log_path, workers=args.workers)
         try:
-            main_jellyfin_recent(libs, args.since_hours, crf, args.verbose, args.workers, args.dry_run, min_savings_pct)
+            main_jellyfin_recent(libs, args.since_hours, crf, args.verbose, args.workers, args.dry_run, min_savings_pct, ignore_paths)
         except Exception:
             log.exception("Unhandled exception")
     elif args.remote:
@@ -2248,10 +2326,7 @@ Modes:
             encoder=TRANSCODER, target_br=TARGET_BR, max_br=MAX_BR,
             dry_run=args.dry_run, log_path=startup_log_path, workers=args.workers)
         try:
-            if args.dry_run:
-                log.info(f"[DRY RUN] Would scan: {Path(scan_dir).expanduser().resolve()}")
-            else:
-                main(scan_dir, crf, args.verbose, parse_exclude_dirs(args.exclude), args.cleanup_tmp, args.workers, min_savings_pct)
+            main(scan_dir, crf, args.verbose, parse_exclude_dirs(args.exclude), args.cleanup_tmp, args.workers, min_savings_pct, args.dry_run, ignore_paths)
         except KeyboardInterrupt:
             pass
         except Exception:

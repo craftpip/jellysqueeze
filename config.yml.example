@@ -1,32 +1,78 @@
 libraries:
-  - name: Shows
+  - name: Movies HD
     paths:
-      - /mnt/media/Shows
-    profile: shows
+      - /path/to/media/movies-hd
+    profile: profile_movies_hd
+  - name: TV Shows
+    paths:
+      - /path/to/media/shows
+    profile: profile_shows
   - name: Movies
     paths:
-      - /mnt/media/Movies
-    profile: movies
-  - name: Torrents
+      - /path/to/media/movies
+    profile: profile_movies
+  - name: Shows HD
     paths:
-      - /mnt/media/Torrents
-    profile: shows
+      - /path/to/media/shows-hd
+    profile: profile_shows_hd
 
 profiles:
-  shows:
-    target_bitrate: 2500
-    max_bitrate: 3500
-    tolerance: 300
+  profile_movies_hd:
+    target_bitrate: 3000
+    max_bitrate: 4500
+    tolerance: 600
     encoder: nvidia
-    keep_audio_langs: [eng, en, jpn, ja]
+    keep_audio_langs:
+      - eng
+      - en
+      - jpn
+      - ja
+      - hi
+      - hin
     keep_subtitles: true
     minimum_savings_percent: 10
 
-  movies:
-    target_bitrate: 3500
-    max_bitrate: 5000
-    tolerance: 500
+  profile_shows:
+    target_bitrate: 2000
+    max_bitrate: 3000
+    tolerance: 400
     encoder: nvidia
-    keep_audio_langs: [eng, en]
+    keep_audio_langs:
+      - eng
+      - en
+      - jpn
+      - ja
+      - hi
+      - hin
+    keep_subtitles: true
+    minimum_savings_percent: 10
+
+  profile_movies:
+    target_bitrate: 3000
+    max_bitrate: 4500
+    tolerance: 600
+    encoder: nvidia
+    keep_audio_langs:
+      - eng
+      - en
+      - jpn
+      - ja
+      - hi
+      - hin
+    keep_subtitles: true
+    minimum_savings_percent: 10
+
+  profile_shows_hd:
+    target_bitrate: 2000
+    max_bitrate: 3000
+    tolerance: 400
+    encoder: nvidia
+    keep_audio_langs:
+      - eng
+      - en
+      - jpn
+      - ja
+      - hi
+      - hin
     keep_subtitles: true
     minimum_savings_percent: 10

@@ -12,6 +12,7 @@ logs/
 
 # Environment / secrets
 .env
+config.yml
 
 # Runtime artifacts
 *.log
