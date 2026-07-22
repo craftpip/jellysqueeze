@@ -6,6 +6,7 @@ Python tool (`convert.py`) that shrinks video files by re-encoding oversized vid
 
 ## Key files
 
+- `plans/` — test plans stored as `plans/<topic>.md`
 - `convert.py` — entry point (~1600 lines)
 - `jellyfin_client.py` — Jellyfin API client (sync httpx)
 - `config.yml` — optional YAML config for libraries and profiles (copy from `config.yml.example`)

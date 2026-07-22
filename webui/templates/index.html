@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Media Convert for Jellyfin</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #121212; color: #e0e0e0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; font-size: 14px; line-height: 1.5; padding: 20px; }
+.container { max-width: 1200px; margin: 0 auto; }
+h1 { font-size: 20px; font-weight: 600; margin-bottom: 16px; color: #fff; }
+h2 { font-size: 15px; font-weight: 600; margin-bottom: 8px; color: #ccc; }
+.card { background: #1e1e1e; border: 1px solid #333; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.row.gap8 { gap: 8px; }
+.col { display: flex; flex-direction: column; gap: 4px; }
+label { font-size: 12px; color: #999; font-weight: 500; }
+input, select, button { font-size: 13px; padding: 6px 10px; border: 1px solid #444; border-radius: 4px; background: #2a2a2a; color: #e0e0e0; outline: none; }
+input:focus, select:focus { border-color: #4c9aff; }
+input[type="checkbox"] { width: 16px; height: 16px; accent-color: #4c9aff; }
+input[type="number"] { width: 100px; }
+select { cursor: pointer; }
+button { cursor: pointer; padding: 7px 16px; font-weight: 500; border: none; border-radius: 4px; transition: background .15s; }
+button.primary { background: #4c9aff; color: #fff; }
+button.primary:hover { background: #3a7de0; }
+button.primary:disabled { background: #2a5a9f; opacity: .5; cursor: default; }
+button.danger { background: #e05050; color: #fff; }
+button.danger:hover { background: #c04040; }
+button.danger:disabled { opacity: .5; cursor: default; }
+.tabs { display: flex; gap: 0; margin-bottom: 0; border-bottom: 1px solid #333; }
+.tab { padding: 8px 16px; cursor: pointer; border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; font-size: 13px; color: #999; background: transparent; transition: all .15s; }
+.tab:hover { color: #ccc; background: #222; }
+.tab.active { color: #4c9aff; border-color: #333; background: #1e1e1e; border-bottom-color: #1e1e1e; margin-bottom: -1px; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+.flag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.flag-item { display: flex; flex-direction: column; gap: 2px; }
+.flag-item.checkbox { flex-direction: row; align-items: center; gap: 6px; }
+.flag-item.checkbox label { margin-bottom: 0; }
+#terminal { background: #1e1e1e; color: #33ff33; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; padding: 12px; border: 1px solid #333; border-radius: 4px; height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
+#terminal::-webkit-scrollbar { width: 8px; }
+#terminal::-webkit-scrollbar-track { background: #1e1e1e; }
+#terminal::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+.status-bar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #2a2a2a; border: 1px solid #333; border-top: none; border-radius: 0 0 4px 4px; font-size: 12px; }
+.status-bar .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot.running { background: #33ff33; animation: pulse 1s infinite; }
+.dot.stopped { background: #e05050; }
+.dot.idle { background: #666; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+.ctrl-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.hidden { display: none !important; }
+.profile-info { background: #252525; border: 1px solid #444; border-radius: 4px; padding: 8px 12px; margin-top: 8px; font-size: 12px; color: #aaa; }
+.profile-info strong { color: #ccc; }
+.warning { background: #332200; border: 1px solid #665500; border-radius: 4px; padding: 8px 12px; color: #ffcc00; font-size: 13px; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Media Convert for Jellyfin</h1>
+<div id="config-warning" class="warning hidden">config.yml not found. Create one with <code>python setup.py</code>.</div>
+
+<div class="card">
+  <h2>Mode</h2>
+  <div class="tabs" id="mode-tabs">
+    <div class="tab active" data-mode="direct">Direct Path</div>
+    <div class="tab" data-mode="all">All Libraries</div>
+    <div class="tab" data-mode="library">Single Library</div>
+    <div class="tab" data-mode="jellyfin_recent">Jellyfin Recent</div>
+    <div class="tab" data-mode="remote">Remote</div>
+  </div>
+
+  <div id="tab-direct" class="tab-content active">
+    <div class="row" style="margin-top:12px">
+      <div class="col" style="flex:1">
+        <label for="directory">Directory path</label>
+        <input type="text" id="directory" placeholder="/path/to/media" style="width:100%">
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div class="col" style="flex:1">
+        <label for="profile">Profile (optional — pre-fills flags)</label>
+        <select id="profile" style="width:100%">
+          <option value="">— None —</option>
+        </select>
+      </div>
+    </div>
+    <div id="profile-info" class="profile-info hidden"></div>
+  </div>
+
+  <div id="tab-library" class="tab-content">
+    <div class="row" style="margin-top:12px">
+      <div class="col" style="flex:1">
+        <label for="library-select">Library</label>
+        <select id="library-select" style="width:100%">
+          <option value="">— Select —</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-jellyfin_recent" class="tab-content">
+    <div class="row" style="margin-top:12px">
+      <div class="col" style="flex:1">
+        <label for="jf-libraries">Libraries (comma-separated)</label>
+        <input type="text" id="jf-libraries" placeholder="Shows,Movies" style="width:100%">
+      </div>
+      <div class="col">
+        <label for="jf-since">Since (hours)</label>
+        <input type="number" id="jf-since" value="72" min="1">
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-remote" class="tab-content">
+    <div class="row" style="margin-top:12px">
+      <div class="col" style="flex:1">
+        <label for="remote-target">Remote target (user@host:/path)</label>
+        <input type="text" id="remote-target" placeholder="user@10.69.1.100:/mnt/media" style="width:100%">
+      </div>
+      <div class="col">
+        <label for="local-tmp">Local temp dir</label>
+        <input type="text" id="local-tmp" placeholder="/tmp/convert-remote">
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-all" class="tab-content">
+    <p style="color:#999;margin-top:8px">Scans all libraries defined in config.yml.</p>
+  </div>
+</div>
+
+<div class="card" id="flags-card">
+  <h2>Flags</h2>
+  <div class="flag-grid">
+    <div class="flag-item">
+      <label for="flag-use">Encoder</label>
+      <select id="flag-use">
+        <option value="nvidia">NVIDIA (NVENC)</option>
+        <option value="intel">Intel (QSV/VAAPI)</option>
+        <option value="amdgpu">AMD (AMF)</option>
+        <option value="cpu">CPU (libx264)</option>
+        <option value="vaapi">VAAPI</option>
+      </select>
+    </div>
+    <div class="flag-item">
+      <label for="flag-bitrate">Bitrate (kbps, override)</label>
+      <input type="number" id="flag-bitrate" placeholder="3000">
+    </div>
+    <div class="flag-item">
+      <label for="flag-crf">CRF value (override)</label>
+      <input type="number" id="flag-crf" placeholder="23" min="0" max="51">
+    </div>
+    <div class="flag-item">
+      <label for="flag-workers">Workers</label>
+      <input type="number" id="flag-workers" value="1" min="1">
+    </div>
+    <div class="flag-item">
+      <label for="flag-min-savings">Min savings %</label>
+      <input type="number" id="flag-min-savings" value="0" min="0">
+    </div>
+    <div class="flag-item">
+      <label for="flag-exclude">Exclude dirs</label>
+      <input type="text" id="flag-exclude" placeholder=".git,.trickplay">
+    </div>
+    <div class="flag-item">
+      <label for="flag-ignore-path">Ignore path substrings</label>
+      <input type="text" id="flag-ignore-path" placeholder="media1t,backup">
+    </div>
+    <div class="flag-item checkbox">
+      <input type="checkbox" id="flag-verbose">
+      <label for="flag-verbose">Verbose</label>
+    </div>
+    <div class="flag-item checkbox">
+      <input type="checkbox" id="flag-dry-run">
+      <label for="flag-dry-run">Dry run</label>
+    </div>
+    <div class="flag-item checkbox">
+      <input type="checkbox" id="flag-no-backup">
+      <label for="flag-no-backup">No backup original</label>
+    </div>
+    <div class="flag-item checkbox">
+      <input type="checkbox" id="flag-cleanup-tmp">
+      <label for="flag-cleanup-tmp">Cleanup temp files</label>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="ctrl-row">
+    <button class="primary" id="btn-run">&#9654; Run</button>
+    <button class="danger" id="btn-stop" disabled>&#9632; Stop</button>
+    <span style="color:#999;font-size:12px;margin-left:auto" id="run-id-display"></span>
+  </div>
+  <div style="margin-top:8px">
+    <pre id="terminal">Loading configuration…</pre>
+    <div class="status-bar">
+      <span class="dot idle" id="status-dot"></span>
+      <span id="status-text">Idle</span>
+      <span id="status-timer" style="margin-left:auto;color:#666"></span>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+const BASE = '';
+let configData = null;
+let currentRunId = null;
+let ws = null;
+let statusTimer = null;
+let startTime = null;
+let paused = false;
+let userScrolled = false;
+
+const terminal = document.getElementById('terminal');
+const btnRun = document.getElementById('btn-run');
+const btnStop = document.getElementById('btn-stop');
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+const statusTimerEl = document.getElementById('status-timer');
+const runIdDisplay = document.getElementById('run-id-display');
+
+terminal.addEventListener('scroll', () => {
+  const atBottom = terminal.scrollHeight - terminal.scrollTop < 50;
+  userScrolled = !atBottom;
+});
+
+function log(data) {
+  terminal.textContent += data + '\n';
+  if (!userScrolled) terminal.scrollTop = terminal.scrollHeight;
+}
+
+function setStatus(state, extra) {
+  statusDot.className = 'dot ' + state;
+  if (state === 'running') {
+    statusText.textContent = 'RUNNING' + (extra ? ' ' + extra : '');
+  } else if (state === 'exited') {
+    statusText.textContent = 'EXITED code ' + extra;
+  } else if (state === 'stopped') {
+    statusText.textContent = 'STOPPED code -15';
+  } else {
+    statusText.textContent = 'Idle';
+  }
+}
+
+function escapeHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function buildFlags() {
+  const f = {};
+  const use = document.getElementById('flag-use').value;
+  if (use) f.use = use;
+  const br = document.getElementById('flag-bitrate').value;
+  if (br) f.bitrate = parseInt(br);
+  const crf = document.getElementById('flag-crf').value;
+  if (crf !== '') f.crf = parseInt(crf);
+  const w = document.getElementById('flag-workers').value;
+  if (w) f.workers = parseInt(w);
+  const ms = document.getElementById('flag-min-savings').value;
+  if (ms) f.min_savings = parseInt(ms);
+  const excl = document.getElementById('flag-exclude').value;
+  if (excl) f.exclude = excl;
+  const ig = document.getElementById('flag-ignore-path').value;
+  if (ig) f.ignore_path = ig.split(',').map(s => s.trim()).filter(Boolean);
+  if (document.getElementById('flag-verbose').checked) f.verbose = true;
+  if (document.getElementById('flag-dry-run').checked) f.dry_run = true;
+  if (document.getElementById('flag-no-backup').checked) f.no_backup_original = true;
+  if (document.getElementById('flag-cleanup-tmp').checked) f.cleanup_tmp = true;
+  return f;
+}
+
+function getMode() {
+  return document.querySelector('#mode-tabs .tab.active').dataset.mode;
+}
+
+function buildRequest() {
+  const mode = getMode();
+  const r = { mode, flags: buildFlags() };
+  if (mode === 'direct') {
+    r.directory = document.getElementById('directory').value;
+    const profile = document.getElementById('profile').value;
+    if (profile) r.profile = profile;
+  } else if (mode === 'library') {
+    r.library = document.getElementById('library-select').value;
+  } else if (mode === 'jellyfin_recent') {
+    r.library = document.getElementById('jf-libraries').value;
+    r.flags.since_hours = parseInt(document.getElementById('jf-since').value) || 72;
+    r.flags.libraries = document.getElementById('jf-libraries').value;
+  } else if (mode === 'remote') {
+    r.directory = document.getElementById('remote-target').value;
+    r.flags.remote = document.getElementById('remote-target').value;
+    const lt = document.getElementById('local-tmp').value;
+    if (lt) r.flags.local_tmp = lt;
+  }
+  return r;
+}
+
+function fillProfileInfo(profileName) {
+  const info = document.getElementById('profile-info');
+  if (!profileName || !configData || !configData.profiles || !configData.profiles[profileName]) {
+    info.classList.add('hidden');
+    return;
+  }
+  const p = configData.profiles[profileName];
+  let html = '<strong>' + escapeHtml(profileName) + '</strong> — ';
+  html += 'encoder: <strong>' + escapeHtml(p.encoder || 'nvidia') + '</strong>, ';
+  html += 'target: <strong>' + (p.target_bitrate || '?') + 'k</strong>, ';
+  html += 'max: <strong>' + (p.max_bitrate || '?') + 'k</strong>, ';
+  html += 'tolerance: <strong>' + (p.tolerance || '?') + 'k</strong>';
+  if (p.minimum_savings_percent) {
+    html += ', min savings: <strong>' + p.minimum_savings_percent + '%</strong>';
+  }
+  info.innerHTML = html;
+  info.classList.remove('hidden');
+}
+
+function applyProfile(profileName) {
+  if (!profileName || !configData || !configData.profiles || !configData.profiles[profileName]) return;
+  const p = configData.profiles[profileName];
+  if (p.encoder) {
+    document.getElementById('flag-use').value = p.encoder;
+  }
+  if (p.target_bitrate) {
+    document.getElementById('flag-bitrate').value = p.target_bitrate;
+  }
+  if (p.minimum_savings_percent) {
+    document.getElementById('flag-min-savings').value = p.minimum_savings_percent;
+  }
+  fillProfileInfo(profileName);
+}
+
+function clearProfileInfo() {
+  document.getElementById('profile-info').classList.add('hidden');
+}
+
+document.getElementById('profile').addEventListener('change', function() {
+  if (this.value) {
+    applyProfile(this.value);
+  } else {
+    clearProfileInfo();
+  }
+});
+
+async function loadConfig() {
+  try {
+    const res = await fetch(BASE + '/api/config');
+    configData = await res.json();
+    if (!configData.config_found) {
+      document.getElementById('config-warning').classList.remove('hidden');
+      return;
+    }
+    document.getElementById('config-warning').classList.add('hidden');
+
+    const profileSelect = document.getElementById('profile');
+    if (configData.profiles) {
+      profileSelect.innerHTML = '<option value="">— None —</option>';
+      for (const [name, _] of Object.entries(configData.profiles)) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        profileSelect.appendChild(opt);
+      }
+    }
+
+    const libSelect = document.getElementById('library-select');
+    if (configData.libraries) {
+      libSelect.innerHTML = '<option value="">— Select —</option>';
+      for (const lib of configData.libraries) {
+        const opt = document.createElement('option');
+        opt.value = lib.name;
+        opt.textContent = lib.name + (lib.profile ? ' (' + lib.profile + ')' : '');
+        libSelect.appendChild(opt);
+      }
+    }
+
+    log('Config loaded: ' + (configData.libraries ? configData.libraries.length + ' libraries, ' : '') + 
+        (configData.profiles ? Object.keys(configData.profiles).length + ' profiles' : ''));
+  } catch (e) {
+    log('Failed to load config: ' + e.message);
+  }
+}
+
+async function startRun() {
+  if (currentRunId) return;
+  const req = buildRequest();
+  if (getMode() === 'direct' && !req.directory) {
+    alert('Please enter a directory path');
+    return;
+  }
+  if (getMode() === 'library' && !req.library) {
+    alert('Please select a library');
+    return;
+  }
+  if (getMode() === 'jellyfin_recent' && !req.library) {
+    alert('Please enter library names');
+    return;
+  }
+  if (getMode() === 'remote' && !req.directory) {
+    alert('Please enter a remote target');
+    return;
+  }
+
+  terminal.textContent = '';
+  userScrolled = false;
+
+  try {
+    const res = await fetch(BASE + '/api/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(req),
+    });
+    const data = await res.json();
+    if (data.error) {
+      log('ERROR: ' + data.error);
+      return;
+    }
+    currentRunId = data.run_id;
+    runIdDisplay.textContent = 'Run: ' + currentRunId.substring(0, 8) + '…';
+    log('$ ' + data.command);
+    btnRun.disabled = true;
+    btnStop.disabled = false;
+    setStatus('running');
+    startTime = Date.now();
+    statusTimer = setInterval(updateTimer, 1000);
+    connectWs(currentRunId);
+  } catch (e) {
+    log('ERROR: ' + e.message);
+  }
+}
+
+function updateTimer() {
+  if (!startTime) return;
+  const secs = Math.floor((Date.now() - startTime) / 1000);
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  statusTimerEl.textContent = m + 'm ' + (s < 10 ? '0' : '') + s + 's';
+}
+
+function connectWs(runId) {
+  if (ws) ws.close();
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + BASE + '/api/ws/' + runId);
+  ws.onmessage = function(e) {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'stdout' || msg.type === 'stderr') {
+      log(msg.data);
+    } else if (msg.type === 'exit') {
+      onExit(msg.code);
+    } else if (msg.type === 'error') {
+      log('ERROR: ' + msg.data);
+      onExit(-1);
+    }
+  };
+  ws.onclose = function() {
+    if (currentRunId) {
+      checkStatus(currentRunId);
+    }
+  };
+  ws.onerror = function() {
+    log('WebSocket error');
+  };
+}
+
+function onExit(code) {
+  if (code === 0) {
+    setStatus('exited', 0);
+  } else if (code === -15 || code === -9) {
+    setStatus('stopped');
+  } else {
+    setStatus('exited', code);
+  }
+  cleanupRun();
+}
+
+async function checkStatus(runId) {
+  try {
+    const res = await fetch(BASE + '/api/status/' + runId);
+    const data = await res.json();
+    if (!data.running) {
+      if (data.exit_code === 0) setStatus('exited', 0);
+      else if (data.exit_code !== null) setStatus('exited', data.exit_code);
+      cleanupRun();
+    }
+  } catch (e) {}
+}
+
+function cleanupRun() {
+  currentRunId = null;
+  btnRun.disabled = false;
+  btnStop.disabled = true;
+  if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+  statusTimerEl.textContent = '';
+  if (ws) { ws.close(); ws = null; }
+}
+
+async function stopRun() {
+  if (!currentRunId) return;
+  try {
+    await fetch(BASE + '/api/stop/' + currentRunId, { method: 'POST' });
+    log('Stop requested');
+  } catch (e) {
+    log('Stop error: ' + e.message);
+  }
+}
+
+btnRun.addEventListener('click', startRun);
+btnStop.addEventListener('click', stopRun);
+
+document.querySelectorAll('#mode-tabs .tab').forEach(tab => {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('#mode-tabs .tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+    this.classList.add('active');
+    document.getElementById('tab-' + this.dataset.mode).classList.add('active');
+  });
+});
+
+loadConfig();
+log('Ready. Select a mode and click Run.');
+</script>
+</body>
+</html>

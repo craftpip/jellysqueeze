@@ -633,6 +633,66 @@ def print_summary(
     print()
 
 
+def show_stats():
+    if not SIZE_REPORT_FILE.exists() or SIZE_REPORT_FILE.stat().st_size == 0:
+        print("No conversion history found (size-report.csv is empty or missing).")
+        return
+
+    entries: list[tuple[str, int, int]] = []
+    with SIZE_REPORT_FILE.open("r", encoding="utf-8") as f:
+        header = f.readline()
+        if not header:
+            print("No conversion history found (size-report.csv is empty).")
+            return
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(",", 2)
+            if len(parts) < 3:
+                continue
+            try:
+                before = int(parts[1])
+                after = int(parts[2])
+                entries.append((parts[0], before, after))
+            except ValueError:
+                continue
+
+    if not entries:
+        print("No conversion history found.")
+        return
+
+    total_before = sum(e[1] for e in entries)
+    total_after = sum(e[2] for e in entries)
+    saved_bytes = total_before - total_after
+    saved_mb = saved_bytes / (1024 * 1024)
+    saved_gb = saved_mb / 1024
+    pct = (1 - total_after / total_before) * 100 if total_before > 0 else 0
+
+    print("Conversion History")
+    print(f"  Files converted:  {len(entries)}")
+    print(f"  Total before:     {total_before / (1024*1024*1024):.2f} GB")
+    print(f"  Total after:      {total_after / (1024*1024*1024):.2f} GB")
+    if saved_gb >= 1.0:
+        print(f"  Space saved:      {saved_gb:.2f} GB  ({pct:.1f}%)")
+    else:
+        print(f"  Space saved:      {saved_mb:.0f} MB  ({pct:.1f}%)")
+    print()
+
+    last = entries[-10:]
+    print("  Last 10 converted:")
+    print(f"  {'Before':>12}  {'After':>12}  {'Saved':>12}  Name")
+    print(f"  {'-'*12}  {'-'*12}  {'-'*12}  {'-'*40}")
+    for name, before, after in last:
+        saved = before - after
+        saved_mb_val = saved / (1024 * 1024)
+        before_mb = before / (1024 * 1024)
+        after_mb = after / (1024 * 1024)
+        short = name[:40]
+        print(f"  {before_mb:>8.0f} MB  {after_mb:>8.0f} MB  {saved_mb_val:>+7.0f} MB  {short}")
+    print()
+
+
 def parse_exclude_dirs(exclude_value: str) -> set[str]:
     excludes = {name.lower() for name in DEFAULT_EXCLUDE_DIRS}
     for part in (exclude_value or "").split(","):
@@ -983,7 +1043,7 @@ def validate_output_media(source: Path, output: Path) -> tuple[bool, str]:
     if abs(source_duration - output_duration) > max(2.0, source_duration * 0.01):
         return False, f"duration_mismatch(source={source_duration:.2f}, output={output_duration:.2f})"
     result = subprocess.run(
-        [FFMPEG_CMD, "-v", "error", "-xerror", "-i", str(output), "-map", "0", "-f", "null", "-"],
+        [FFMPEG_CMD, "-v", "error", "-xerror", "-i", str(output), "-map", "0:v?", "-map", "0:a?", "-f", "null", "-"],
         capture_output=True,
         text=True,
     )
@@ -2202,6 +2262,62 @@ def main_jellyfin_recent(
     print_summary(len(library_names), len(unique_files), ok, skip, fail, space_saved_mb, elapsed)
 
 
+def maybe_launch_servers():
+    config = load_config()
+    if not config:
+        return
+
+    webui_cfg = config.get("webui") or {}
+    mcp_cfg = config.get("mcp") or {}
+
+    if not webui_cfg.get("enabled", True) and not mcp_cfg.get("enabled", True):
+        return
+
+    import threading
+
+    webui_started = False
+    mcp_started = False
+
+    if webui_cfg.get("enabled", True):
+        def start_webui():
+            import uvicorn
+            try:
+                from webui.main import app
+                host = webui_cfg.get("host", "0.0.0.0")
+                port = int(webui_cfg.get("port", 8080))
+                log.info(f"Starting web UI server on {host}:{port}")
+                uvicorn.run(app, host=host, port=port, log_level="warning")
+            except Exception as e:
+                log.warning(f"Web UI server failed to start: {e}")
+
+        t = threading.Thread(target=start_webui, daemon=True)
+        t.start()
+        webui_started = True
+
+    if mcp_cfg.get("enabled", True):
+        def start_mcp():
+            import uvicorn
+            try:
+                from webui.mcp import mcp_app
+                from fastapi import FastAPI
+                mcp_server = FastAPI()
+                mcp_server.include_router(mcp_app)
+                host = mcp_cfg.get("host", "0.0.0.0")
+                port = int(mcp_cfg.get("port", 9090))
+                log.info(f"Starting MCP server on {host}:{port}")
+                uvicorn.run(mcp_server, host=host, port=port, log_level="warning")
+            except Exception as e:
+                log.warning(f"MCP server failed to start: {e}")
+
+        t = threading.Thread(target=start_mcp, daemon=True)
+        t.start()
+        mcp_started = True
+
+    if webui_started or mcp_started:
+        import time
+        time.sleep(0.5)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
         description="""Convert oversized video files in Jellyfin media libraries.
@@ -2231,7 +2347,34 @@ Modes:
     parser.add_argument("--dry-run", action="store_true", help="Preview what would be done without modifying files")
     parser.add_argument("--min-savings", type=int, default=0, help="Minimum savings percent to keep converted file (default: 0 = disabled)")
     parser.add_argument("--no-backup-original", action="store_true", help="Do not keep an original-file backup (unsafe)")
+    parser.add_argument("--stats", action="store_true", help="Show conversion history from size-report.csv")
+    parser.add_argument("--webui-only", action="store_true", help="Start web UI server only (no conversion)")
+    parser.add_argument("--mcp-only", action="store_true", help="Start MCP server only (no conversion)")
     args = parser.parse_args()
+
+    if args.stats:
+        show_stats()
+        raise SystemExit(0)
+
+    if args.webui_only or args.mcp_only:
+        import uvicorn
+        setup_logging(None, True)
+        if args.webui_only:
+            from webui.main import app
+            host = os.getenv("WEBUI_HOST", "0.0.0.0")
+            port = int(os.getenv("WEBUI_PORT", "8080"))
+            log.info(f"Starting web UI server on {host}:{port}")
+            uvicorn.run(app, host=host, port=port, log_level="info")
+        if args.mcp_only:
+            from webui.mcp import mcp_app
+            from fastapi import FastAPI
+            mcp_server = FastAPI()
+            mcp_server.include_router(mcp_app)
+            host = os.getenv("MCP_HOST", "0.0.0.0")
+            port = int(os.getenv("MCP_PORT", "9090"))
+            log.info(f"Starting MCP server on {host}:{port}")
+            uvicorn.run(mcp_server, host=host, port=port, log_level="info")
+        raise SystemExit(0)
 
     log_path = Path(args.log_file).expanduser().resolve() if args.log_file else None
     min_savings_pct = args.min_savings if args.min_savings is not None else DEFAULT_MIN_SAVINGS_PCT
@@ -2269,6 +2412,9 @@ Modes:
     if not ok:
         log.error(f"FATAL: {err}")
         raise SystemExit(1)
+
+    if not args.stats:
+        maybe_launch_servers()
 
     startup_log_path = str(log_path)
 

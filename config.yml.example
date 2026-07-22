@@ -76,3 +76,13 @@ profiles:
       - hin
     keep_subtitles: true
     minimum_savings_percent: 10
+
+webui:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8080
+
+mcp:
+  enabled: true
+  host: "0.0.0.0"
+  port: 9090

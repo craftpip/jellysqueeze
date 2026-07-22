@@ -220,6 +220,22 @@ def discover_jellyfin_libraries() -> list[dict] | None:
         return None
 
 
+def configure_webui_mcp(config: dict) -> dict:
+    step("Web UI & MCP Server")
+    print("  The web UI provides a browser interface at http://localhost:8080")
+    print("  The MCP server provides REST endpoints for AI tools (opencode, etc.)")
+    print()
+    webui_enabled = ask_yesno("Enable web UI server?", True)
+    webui_host = ask("Web UI host", "0.0.0.0")
+    webui_port = int(ask("Web UI port", "8080"))
+    mcp_enabled = ask_yesno("Enable MCP server?", True)
+    mcp_host = ask("MCP host", "0.0.0.0")
+    mcp_port = int(ask("MCP port", "9090"))
+    config["webui"] = {"enabled": webui_enabled, "host": webui_host, "port": webui_port}
+    config["mcp"] = {"enabled": mcp_enabled, "host": mcp_host, "port": mcp_port}
+    return config
+
+
 def configure_config():
     if CONFIG_FILE.exists():
         if not ask_yesno(f"config.yml already exists. Keep existing libraries?", True):
@@ -304,6 +320,7 @@ def configure_config():
 
     import yaml
     config = {"libraries": libraries, "profiles": profiles_data}
+    config = configure_webui_mcp(config)
     CONFIG_FILE.write_text(yaml.dump(config, default_flow_style=False, sort_keys=False), encoding="utf-8")
     ok(f"config.yml written to {CONFIG_FILE}")
 
