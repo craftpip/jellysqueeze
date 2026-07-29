@@ -48,7 +48,13 @@ def mcp_libraries():
             "paths": conv.normalize_library_paths(lib),
             "profile": profile_name,
         }
-        if profile_name and profile_name in profiles:
+        inline_keys = {"target_bitrate", "max_bitrate", "encoder",
+                       "keep_audio_langs", "keep_subtitle_langs",
+                       "keep_subtitles", "minimum_savings_percent"}
+        inline = {k: lib[k] for k in inline_keys if k in lib}
+        if inline:
+            entry["profile_settings"] = inline
+        elif profile_name and profile_name in profiles:
             entry["profile_settings"] = profiles[profile_name]
         result.append(entry)
     return {"libraries": result}

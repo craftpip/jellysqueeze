@@ -246,7 +246,7 @@ def configure_config():
     step("Media Libraries")
 
     libraries = []
-    profiles_data: dict[str, dict] = {}
+    
 
     # Try discovering from Jellyfin
     jellyfin_libs = discover_jellyfin_libraries()
@@ -267,7 +267,7 @@ def configure_config():
                         if not paths:
                             fail(f"No filesystem path for '{lib['name']}', skipping")
                             continue
-                        libraries.append({"name": lib["name"], "paths": paths, "profile": None})
+                        libraries.append({"name": lib["name"], "paths": paths})
 
     if not libraries:
         if not ask_yesno("Add a media library manually?", True):
@@ -281,11 +281,11 @@ def configure_config():
                 if not ask_yesno("Add another library?", False):
                     break
                 continue
-            libraries.append({"name": name, "paths": paths, "profile": None})
+            libraries.append({"name": name, "paths": paths})
             if not ask_yesno("Add another library?", False):
                 break
 
-    # Assign profiles and encoder settings for each library
+    # Assign encoder settings for each library
     for lib_entry in libraries:
         name = lib_entry["name"]
         print(f"\n  ── {name} ──")
@@ -302,20 +302,16 @@ def configure_config():
         langs = ask("Audio languages to keep (comma-separated, e.g. eng,en,jpn,ja)", "eng,en,jpn,ja,hi,hin")
         savings = ask("Minimum savings percent (0 = disabled)", "10")
 
-        profile_name = f"profile_{name.lower().replace(' ', '_')}"
-        profiles_data[profile_name] = {
-            "target_bitrate": preset["target"],
-            "max_bitrate": preset["max"],
-            "encoder": encoder,
-            "keep_audio_langs": [l.strip() for l in langs.split(",")],
-            "keep_subtitles": True,
-            "minimum_savings_percent": int(savings),
-        }
-        lib_entry["profile"] = profile_name
+        lib_entry["target_bitrate"] = preset["target"]
+        lib_entry["max_bitrate"] = preset["max"]
+        lib_entry["encoder"] = encoder
+        lib_entry["keep_audio_langs"] = [l.strip() for l in langs.split(",")]
+        lib_entry["keep_subtitles"] = True
+        lib_entry["minimum_savings_percent"] = int(savings)
         ok(f"'{name}' configured ({preset['label']})")
 
     import yaml
-    config = {"libraries": libraries, "profiles": profiles_data}
+    config = {"libraries": libraries}
     config = configure_webui_mcp(config)
     CONFIG_FILE.write_text(yaml.dump(config, default_flow_style=False, sort_keys=False), encoding="utf-8")
     ok(f"config.yml written to {CONFIG_FILE}")

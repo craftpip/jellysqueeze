@@ -10,9 +10,9 @@ Python tool (`convert.py`) that shrinks video files by re-encoding oversized vid
 - `src/convert.py` — entry point (~2500 lines)
 - `src/jellyfin_client.py` — Jellyfin API client (sync httpx)
 - `src/_detect_encoder.py` — encoder detection helper
-- `config.yml` — optional YAML config for libraries and profiles (copy from `config.yml.example`)
+- `config.yml` — optional YAML config for libraries (inline settings per library, no separate profiles section)
 - `.env` — configuration (Jellyfin API key, bitrate settings, etc.)
-- `config.yml.example` — example config for libraries and profiles
+- `config.yml.example` — example config for libraries
 - `var/_progress.txt` — tracks completed conversions (auto-generated, do not delete). Format: `path|option` one per line
 - `var/size-report.csv` — global output with before/after sizes (auto-generated)
 - `var/probe-cache.json` — caches ffprobe results for files that haven't changed. Only caches SKIP results, not OK or FAIL.
@@ -35,7 +35,8 @@ Python tool (`convert.py`) that shrinks video files by re-encoding oversized vid
 - `get_available_encoders()` — runs `ffmpeg -encoders` and parses output, cached globally
 - `ffprobe_json()` / `probe_streams()` / `get_estimated_bitrate_kbps()` — media probing helpers
 - `JellyfinClient` in `jellyfin_client.py` — sync Jellyfin API client (list libraries, get recently added items)
-- `load_config()` / `set_profile_globals()` — config.yml loading and per-profile setting application
+- `load_config()` / `set_profile_globals()` / `_extract_profile()` — config.yml loading, inline profile extraction, and setting application
+- `_extract_profile(config, lib)` — reads profile settings directly from library entry (inline keys preferred, falls back to old `profile:` reference)
 - `main_all()` / `main_library()` / `main_jellyfin_recent()` — new mode dispatchers
 
 ## Key functions — what they do

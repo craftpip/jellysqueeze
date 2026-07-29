@@ -2,22 +2,6 @@ libraries:
   - name: Movies HD
     paths:
       - /path/to/media/movies-hd
-    profile: profile_movies_hd
-  - name: TV Shows
-    paths:
-      - /path/to/media/shows
-    profile: profile_shows
-  - name: Movies
-    paths:
-      - /path/to/media/movies
-    profile: profile_movies
-  - name: Shows HD
-    paths:
-      - /path/to/media/shows-hd
-    profile: profile_shows_hd
-
-profiles:
-  profile_movies_hd:
     target_bitrate: 3000
     max_bitrate: 4500
     encoder: nvidia
@@ -31,7 +15,9 @@ profiles:
     keep_subtitles: true
     minimum_savings_percent: 10
 
-  profile_shows:
+  - name: TV Shows
+    paths:
+      - /path/to/media/shows
     target_bitrate: 2000
     max_bitrate: 3000
     encoder: nvidia
@@ -45,7 +31,9 @@ profiles:
     keep_subtitles: true
     minimum_savings_percent: 10
 
-  profile_movies:
+  - name: Movies
+    paths:
+      - /path/to/media/movies
     target_bitrate: 3000
     max_bitrate: 4500
     encoder: nvidia
@@ -59,7 +47,9 @@ profiles:
     keep_subtitles: true
     minimum_savings_percent: 10
 
-  profile_shows_hd:
+  - name: Shows HD
+    paths:
+      - /path/to/media/shows-hd
     target_bitrate: 2000
     max_bitrate: 3000
     encoder: nvidia

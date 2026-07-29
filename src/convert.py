@@ -434,6 +434,28 @@ def get_profile_settings(config: dict, profile_name: str) -> dict | None:
     return profiles.get(profile_name)
 
 
+_PROFILE_KEYS = frozenset({
+    "target_bitrate", "max_bitrate", "encoder",
+    "keep_audio_langs", "keep_subtitle_langs",
+    "keep_subtitles", "minimum_savings_percent",
+})
+
+
+def _extract_profile(config: dict, lib: dict) -> dict | None:
+    """Extract profile settings from a library entry.
+
+    Prefers inline settings directly on the library entry.
+    Falls back to old-style ``profile:`` reference for backward compat.
+    """
+    inline = {k: lib[k] for k in _PROFILE_KEYS if k in lib}
+    if inline:
+        return inline
+    profile_name = lib.get("profile", "")
+    if profile_name:
+        return get_profile_settings(config, profile_name)
+    return None
+
+
 def set_profile_globals(profile: dict) -> None:
     global TARGET_BR, MAX_BR, BUFSIZE, TRANSCODER, TRANSCODER_PROFILE, ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS
     if "target_bitrate" in profile:
@@ -485,12 +507,8 @@ def find_library_config(config: dict | None, library_name: str) -> tuple[list[st
     for lib in libraries:
         if lib.get("name", "").strip().lower() == needle:
             paths = normalize_library_paths(lib)
-            profile_name = lib.get("profile", "")
-            if profile_name:
-                profile = get_profile_settings(config, profile_name)
-                if profile:
-                    return paths, profile
-            return paths, None
+            profile = _extract_profile(config, lib)
+            return paths, profile
     return None
 
 
@@ -2006,7 +2024,6 @@ def main_all(crf: int | None = None, verbose: bool = False, workers: int = 1, dr
         log.error("FATAL: no libraries defined in config.yml")
         return
 
-    profiles = config.get("profiles") or {}
     total_libraries = 0
     total_found = 0
     total_ok = 0
@@ -2017,8 +2034,7 @@ def main_all(crf: int | None = None, verbose: bool = False, workers: int = 1, dr
 
     for lib in libraries:
         lib_name = lib.get("name", "unknown")
-        profile_name = lib.get("profile", "")
-        profile = profiles.get(profile_name) if profile_name else None
+        profile = _extract_profile(config, lib)
         lib_paths = normalize_library_paths(lib)
 
         if not lib_paths:
