@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).parent.parent
-sys.path.insert(0, str(BASE_DIR))
+sys.path.insert(0, str(BASE_DIR / "src"))
 
 import convert as conv
 from webui.runner import get_manager
@@ -34,7 +34,7 @@ def _load_config_safe():
 
 def build_convert_cmd(req: dict) -> list[str]:
     python = sys.executable
-    cmd = [python, str(Path(BASE_DIR) / "convert.py")]
+    cmd = [python, str(Path(BASE_DIR) / "src" / "convert.py")]
     mode = req.get("mode", "direct")
     flags = req.get("flags", {}) or {}
 
@@ -96,7 +96,6 @@ def api_env():
     return {
         "TARGET_BR": int(os.getenv("TARGET_BR", 3000)),
         "MAX_BR": int(os.getenv("MAX_BR", 3300)),
-        "BITRATE_TOLERANCE": int(os.getenv("BITRATE_TOLERANCE", 300)),
         "DEFAULT_CRF": int(os.getenv("DEFAULT_CRF", 23)),
         "JELLYFIN_BASE_URL": os.getenv("JELLYFIN_BASE_URL", ""),
     }

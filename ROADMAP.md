@@ -84,7 +84,6 @@ profiles:
   shows:
     target_bitrate: 2500
     max_bitrate: 3500
-    tolerance: 300
     encoder: nvidia
     keep_audio_langs: [eng, en, jpn, ja, hin, hi]
     keep_subtitles: true
@@ -93,7 +92,6 @@ profiles:
   movies:
     target_bitrate: 3500
     max_bitrate: 5000
-    tolerance: 500
     encoder: nvidia
     keep_audio_langs: [eng, en, hin, hi]
     keep_subtitles: true
@@ -184,29 +182,27 @@ Skip as already processed only when path, profile, size, and modified time match
 Each profile defines:
 
 1. `target_bitrate`: bitrate used for ffmpeg encoding.
-2. `max_bitrate`: maximum acceptable source bitrate before conversion.
-3. `tolerance`: buffer above max bitrate to avoid pointless conversions.
+2. `max_bitrate`: files above this trigger conversion; output also bursts up to this.
 
 Decision rule:
 
 ```text
-convert if detected_bitrate > max_bitrate + tolerance
-skip if detected_bitrate <= max_bitrate + tolerance
+convert if detected_bitrate > max_bitrate
+skip if detected_bitrate <= max_bitrate
 ```
 
 Example:
 
 ```text
 max_bitrate = 3500
-tolerance = 300
-threshold = 3800
+threshold = 3500
 ```
 
 So:
 
 ```text
-3700 kbps -> skip
-3900 kbps -> convert
+3400 kbps -> skip
+3600 kbps -> convert
 ```
 
 Unknown bitrate behavior:

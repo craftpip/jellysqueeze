@@ -15,10 +15,8 @@ services:
     volumes:
       # Project files (persistent state)
       - "${PWD}/config.yml:/app/config.yml:ro"
-      - "${PWD}/done.txt:/app/done.txt"
-      - "${PWD}/probe-cache.json:/app/probe-cache.json"
-      - "${PWD}/size-report.csv:/app/size-report.csv"
-      - "${PWD}/logs:/app/logs"
+      - "${PWD}/.env:/app/.env"
+      - "${PWD}/var:/app/var"
 
       # Media libraries — match paths from config.yml
       - /mnt/media1t/downloads:/mnt/media1t/downloads

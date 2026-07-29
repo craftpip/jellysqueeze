@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Test script for convert.py done.txt tracking functionality.
+Test script for convert.py progress tracking functionality.
 
-This test mocks the FFmpeg conversion to test the done.txt tracking logic
+This test mocks the FFmpeg conversion to test the progress tracking logic
 without requiring actual video processing.
 
 Usage:
@@ -14,19 +14,18 @@ import os
 from pathlib import Path
 
 # Add parent dir to path so we can import convert module
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 # Import the tracking functions from convert.py
 import convert
 
 TEST_DIR = Path(__file__).parent / "test_files"
-DONE_FILE = Path(__file__).parent / "done.txt"
 
 
 def clean_done():
-    """Remove done.txt before each test."""
-    if DONE_FILE.exists():
-        DONE_FILE.unlink()
+    """Remove _progress.txt before each test."""
+    if convert.DONE_FILE.exists():
+        convert.DONE_FILE.unlink()
 
 
 def get_video_files():
@@ -54,7 +53,7 @@ def test_load_done_empty():
 def test_save_and_load():
     """Test: save_done and load_done work correctly."""
     print("\n" + "=" * 50)
-    print("TEST 2: save and load done.txt")
+    print("TEST 2: save and load _progress.txt")
     print("=" * 50)
     clean_done()
     
@@ -256,7 +255,7 @@ def test_real_video_file():
 
 def main():
     print("=" * 60)
-    print("TEST SUITE FOR done.txt TRACKING")
+    print("TEST SUITE FOR PROGRESS TRACKING")
     print("(Mock tests - no actual FFmpeg required)")
     print("=" * 60)
     

@@ -12,24 +12,29 @@
 
 - Change `LOGS_DIR` from `logs/` to `var/logs/`
 - Path becomes: `var/logs/YYYY-MM-DD/HH-MM-SS_mode.log`
+- **DONE**
 
 ### 2. Remove legacy root log
 
 - Delete `convert-all.log` from project root
 - Only date-stamped logs in `var/logs/` kept
+- **DONE**
 
 ### 3. Per-run size report
 
 - Keep global `size-report.csv` at `var/size-report.csv`
 - Add per-run size report: `var/logs/YYYY-MM-DD/HH-MM-SS_mode.size.csv`
+- **DONE**
 
 ### 4. Rename done.txt to _progress.txt
 
 - `var/_progress.txt` — same format, update all references
+- **DONE**
 
 ### 5. probe-cache.json
 
 - Move to `var/probe-cache.json`
+- **DONE**
 
 ### 6. Log cleanup / retention (optional)
 

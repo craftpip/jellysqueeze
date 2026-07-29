@@ -9,10 +9,7 @@ test_files/
 test_convert.py
 setup.py
 convert.sh
-logs/
-size-report.csv
-probe-cache.json
-done.txt
+var/
 .env
 config.yml
 .DS_Store

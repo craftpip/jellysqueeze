@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Callable
 
 BASE_DIR = Path(__file__).parent.parent
-CONVERT_PY = BASE_DIR / "convert.py"
+CONVERT_PY = BASE_DIR / "src" / "convert.py"
 
 
 class RunManager:

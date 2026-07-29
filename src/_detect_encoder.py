@@ -1,7 +1,8 @@
 """Helper script run by setup.py to detect available GPU encoder."""
 
 import sys
-sys.path.insert(0, ".")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
 
 from convert import get_available_encoders, resolve_transcoder
 

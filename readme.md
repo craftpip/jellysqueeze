@@ -39,8 +39,8 @@ python convert.py /path/to/media --use nvidia --workers 2
 - Strip audio languages you don't speak
 - Strip subtitle streams you don't read
 - Downmix multichannel audio to stereo
-- Resume-safe — tracks completed conversions in `done.txt`
-- Size report in `size-report.csv`
+- Resume-safe — tracks completed conversions in `var/_progress.txt`
+- Size report in `var/size-report.csv`
 - Temp file safety with automatic cleanup
 
 ## 🎮 CLI Options
@@ -95,7 +95,6 @@ Create a `.env` file in the project root:
 ```dotenv
 TARGET_BR=3000
 MAX_BR=3300
-BITRATE_TOLERANCE=300
 BUFSIZE=6000
 DEFAULT_CRF=23
 ```

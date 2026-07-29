@@ -7,15 +7,18 @@ Python tool (`convert.py`) that shrinks video files by re-encoding oversized vid
 ## Key files
 
 - `plans/` — test plans stored as `plans/<topic>.md`
-- `convert.py` — entry point (~1600 lines)
-- `jellyfin_client.py` — Jellyfin API client (sync httpx)
+- `src/convert.py` — entry point (~2500 lines)
+- `src/jellyfin_client.py` — Jellyfin API client (sync httpx)
+- `src/_detect_encoder.py` — encoder detection helper
 - `config.yml` — optional YAML config for libraries and profiles (copy from `config.yml.example`)
 - `.env` — configuration (Jellyfin API key, bitrate settings, etc.)
-- `done.txt` — tracks completed conversions (auto-generated, do not delete). Format: `path|option` one per line
-- `size-report.csv` — output with before/after sizes (auto-generated)
-- `probe-cache.json` — caches ffprobe results for files that haven't changed. Only caches SKIP results, not OK or FAIL.
-- `test_convert.py` — 8 tests for done.txt tracking logic. 4 pass, 4 need a real video in `test_files/`
 - `config.yml.example` — example config for libraries and profiles
+- `var/_progress.txt` — tracks completed conversions (auto-generated, do not delete). Format: `path|option` one per line
+- `var/size-report.csv` — global output with before/after sizes (auto-generated)
+- `var/probe-cache.json` — caches ffprobe results for files that haven't changed. Only caches SKIP results, not OK or FAIL.
+- `var/logs/` — dated log files and per-run size reports
+- `test_convert.py` — 8 tests for progress tracking logic. 4 pass, 4 need a real video in `test_files/`
+- `scripts/convert.sh` — auto-generated venv wrapper script
 - `ROADMAP.md` — original aspirational plan (all features now implemented)
 - `transcoding-guide.md` — Linux GPU transcoding setup notes (AMD VA-API, Intel QSV)
 - `requirements.txt` — python-dotenv, httpx, pyyaml
@@ -23,7 +26,7 @@ Python tool (`convert.py`) that shrinks video files by re-encoding oversized vid
 ## Key Architecture
 
 - `discover_videos_and_cleanup()` — walks directory tree with `os.scandir`, cleans up temp files (`. TMP_TAG`) during scan
-- `convert_if_needed()` — per-file decision: checks bitrate against threshold, runs ffmpeg with fallback attempts, replaces original
+- `convert_if_needed()` — per-file decision: checks bitrate against MAX_BR, runs ffmpeg with fallback attempts, replaces original
 - `build_ffmpeg_cmd()` — probes streams, builds ffmpeg args with proper stream maps, HW accel, encoder params, subtitle mode
 - `safe_replace()` — atomic `os.replace()` with up to 12 retries (250ms delay) on PermissionError
 - `main()` — local mode: sequential or parallel (ThreadPoolExecutor with done_lock)
@@ -48,13 +51,13 @@ Python tool (`convert.py`) that shrinks video files by re-encoding oversized vid
 
 ## Important Rules
 
-- **Never modify or delete `done.txt`** — it prevents re-converting already-processed files.
+- **Never modify or delete `var/_progress.txt`** — it prevents re-converting already-processed files.
 - **Always write the temp file first**, then replace the original via `safe_replace()`.
 - The `TMP_TAG = ".__transcoding__"` is used to identify in-progress temp files. Files with this tag are deleted during discovery.
 - GPU decoder support varies per profile — check `HWACCEL_DECODABLE` (line 48) before suggesting hardware acceleration.
 - Keep `--workers` defaulting to `1`; parallel conversion must remain opt-in.
 - **probe-cache.json** only stores SKIP results. OK and FAIL results delete the cache entry so they are re-checked next run.
-- **done.txt format**: one `path|option` per line. The option is `crf:N` or `br:TARGET_BR`. A file is skipped only if path + option both match.
+- **done.txt format** (in `var/_progress.txt`): one `path|option` per line. The option is `crf:N` or `br:TARGET_BR`. A file is skipped only if path + option both match.
 - Discovery skips `.trickplay` directories and names containing `.trickplay`. It also skips any dir listed in `--exclude`.
 - `--bitrate` overrides: `MAX_BR = bitrate + 1000`, `BUFSIZE = MAX_BR * 2`.
 
@@ -74,8 +77,7 @@ Fallback attempts cover: GPU decode failures, unsupported subtitle streams, cove
 | Variable | Default | Description |
 |---|---|---|
 | `TARGET_BR` | 3000 | Target video bitrate in kbps |
-| `MAX_BR` | 3300 | Maximum bitrate before conversion triggers |
-| `BITRATE_TOLERANCE` | 300 | Tolerance above MAX_BR |
+| `MAX_BR` | 3300 | Files above this bitrate trigger conversion |
 | `BUFSIZE` | 6000 | ffmpeg bufSize |
 | `DEFAULT_CRF` | 23 | Default CRF value for CPU mode |
 | `FFMPEG_BIN` | — | Override ffmpeg binary path |
@@ -91,8 +93,15 @@ Fallback attempts cover: GPU decode failures, unsupported subtitle streams, cove
 ## Fix Patterns
 
 - **Check real encoding progress**: Look at the temp file (`.__transcoding__.mkv`) size growing using `ls -lh`, or check the ffmpeg child process via `pgrep -P <parent_pid> -a`.
-- **Check what file is being processed**: Use `ls -lt done.txt | tail -3` for recent completions, or `find ... -name "*__transcoding__*"` for in-progress files.
+- **Check what file is being processed**: Use `ls -lt var/_progress.txt | tail -3` for recent completions, or `find ... -name "*__transcoding__*"` for in-progress files.
 - **Check process health**: Use `ps -o pid,state,etime,pcpu -p <ffmpeg_pid>` to see if ffmpeg is actually encoding vs stuck.
+
+## Do Not Do
+
+- **Never delete or move user data files without asking first.** Logs, progress files, probe caches, and size reports contain real operational data. Moving them to a new location should preserve the originals or ask the user before removing.
+- **Don't be hyperactive and rush through tasks.** Slow down. Read carefully. Ask before doing destructive things like deleting files or moving data.
+- **Don't assume cleanup is safe.** `rm -rf` on user data is never safe without explicit confirmation.
+- **When restructuring paths (e.g. moving files to new directories), keep the old files in place** until the user confirms the new setup works and is ready to clean up.
 
 ## Safety
 

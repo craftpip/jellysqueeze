@@ -2,23 +2,21 @@
 # placed at repository root
 **/test_files/*
 !**/test_files/.gitkeep
-done.txt
 __pycache__/
-size-report.csv
 venv/
 .venv/
-convert.sh
-logs/
 
-# Environment / secrets
+# Environment / secrets / config files
 .env
 config.yml
 
-# Runtime artifacts
-*.log
+# Runtime wrapper
+scripts/convert.sh
+
+# All runtime data
+var/
 nohup.out
 o.txt
-probe-cache.json
 
 # Scan output files
 escan*

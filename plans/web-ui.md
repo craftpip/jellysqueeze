@@ -175,7 +175,7 @@ When user selects a profile (in Direct or Library mode), these flags auto-popula
 | `keep_audio_langs` | shown as info (not a CLI flag — set internally) |
 | `keep_subtitles` | shown as info |
 
-The profile also sets `max_bitrate` and `tolerance` internally via `set_profile_globals()` — these are not CLI flags but the UI should show them as read-only info when a profile is active.
+The profile also sets `max_bitrate` internally via `set_profile_globals()` — this is not a CLI flag but the UI should show it as read-only info when a profile is active.
 
 ## Backend runner
 
@@ -242,7 +242,7 @@ All features manually verified in browser and via API tests:
 | Mode tab switching | ✅ | Direct, All Libraries, Single Library, Jellyfin Recent, Remote — correct tab-content toggling |
 | Profile dropdown populated from config | ✅ | 4 profiles listed |
 | Profile pre-fill (flag values) | ✅ | encoder→`use`, target_bitrate→`bitrate`, min_savings→`min_savings` |
-| Profile info card | ✅ | Shows encoder, target, max, tolerance, min savings |
+| Profile info card | ✅ | Shows encoder, target, max, min savings | |
 | Library dropdown populated | ✅ | 4 libraries listed with profile names |
 | Direct mode: enter path, click Run | ✅ | Terminal shows command + output |
 | `POST /api/run` returns run_id + command | ✅ | Correct CLI args built for all modes |

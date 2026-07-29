@@ -8,12 +8,13 @@ import sys
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
+sys.path.insert(0, str(BASE_DIR / "src"))
 VENV_DIR = BASE_DIR / ".venv"
-CONVERT_PY = BASE_DIR / "convert.py"
+CONVERT_PY = BASE_DIR / "src" / "convert.py"
 ENV_FILE = BASE_DIR / ".env"
 CONFIG_FILE = BASE_DIR / "config.yml"
 REQUIREMENTS = BASE_DIR / "requirements.txt"
-WRAPPER = BASE_DIR / "convert.sh"
+WRAPPER = BASE_DIR / "scripts" / "convert.sh"
 
 
 def ask(prompt: str, default: str = "") -> str:
@@ -97,7 +98,7 @@ def detect_encoder() -> str:
     try:
         python = get_venv_python()
         r = subprocess.run(
-            [python, str(BASE_DIR / "_detect_encoder.py")],
+            [python, str(BASE_DIR / "src" / "_detect_encoder.py")],
             capture_output=True, text=True, timeout=30,
         )
         if r.returncode != 0:
@@ -143,15 +144,12 @@ def configure_env():
     step("Bitrate Settings")
     existing_target = read_env_value("TARGET_BR") or "3000"
     existing_max = read_env_value("MAX_BR") or "3300"
-    existing_tolerance = read_env_value("BITRATE_TOLERANCE") or "300"
     target_br = ask("Target bitrate (kbps)", existing_target)
     max_br = ask("ffmpeg burst max (kbps)", existing_max)
-    tolerance = ask("Decision tolerance (kbps above target)", existing_tolerance)
 
     content = f"""# ── Conversion Settings ───────────────────────
 TARGET_BR={target_br}
 MAX_BR={max_br}
-BITRATE_TOLERANCE={tolerance}
 BUFSIZE={int(max_br) * 2}
 DEFAULT_CRF=23
 
@@ -168,17 +166,17 @@ JELLYFIN_API_KEY={key}
 
 
 PRESETS = {
-    "1": {"label": "Maximum shrink", "target": 2000, "max": 3000, "tolerance": 400, "desc": "Great for 1080p TV, saves ~60-70%"},
-    "2": {"label": "Balanced",       "target": 3000, "max": 4500, "tolerance": 600, "desc": "Sweet spot, most people use this"},
-    "3": {"label": "Quality",        "target": 5000, "max": 7000, "tolerance": 1000, "desc": "Near-lossless for 1080p"},
-    "4": {"label": "4K high quality","target": 10000,"max": 15000,"tolerance": 2000, "desc": "For 2160p content"},
-    "5": {"label": "Custom",         "target": None, "max": None, "tolerance": None, "desc": "Set your own numbers"},
+    "1": {"label": "Maximum shrink", "target": 2000, "max": 3000, "desc": "Great for 1080p TV, saves ~60-70%"},
+    "2": {"label": "Balanced",       "target": 3000, "max": 4500, "desc": "Sweet spot, most people use this"},
+    "3": {"label": "Quality",        "target": 5000, "max": 7000, "desc": "Near-lossless for 1080p"},
+    "4": {"label": "4K high quality","target": 10000,"max": 15000, "desc": "For 2160p content"},
+    "5": {"label": "Custom",         "target": None, "max": None, "desc": "Set your own numbers"},
 }
 
 
 def pick_preset() -> dict:
     for key, p in PRESETS.items():
-        bits = f"{p['target']}k / {p['max']}k / tol {p['tolerance']}" if p["target"] else "custom"
+        bits = f"{p['target']}k / max {p['max']}k" if p["target"] else "custom"
         print(f"  [{key}] {p['label']:18s}  {bits:28s}  {p['desc']}")
     choice = ask("Pick a preset", "2")
     preset = PRESETS.get(choice)
@@ -190,8 +188,7 @@ def pick_preset() -> dict:
     # Custom
     t = int(ask("Target bitrate (kbps)", "3000"))
     m = int(ask("Max bitrate / ffmpeg burst (kbps)", str(int(t * 1.5))))
-    tol = int(ask("Decision tolerance (kbps above target)", str(int(t * 0.2))))
-    return {"target": t, "max": m, "tolerance": tol, "label": "Custom"}
+    return {"target": t, "max": m, "label": "Custom"}
 
 
 def discover_jellyfin_libraries() -> list[dict] | None:
@@ -309,7 +306,6 @@ def configure_config():
         profiles_data[profile_name] = {
             "target_bitrate": preset["target"],
             "max_bitrate": preset["max"],
-            "tolerance": preset["tolerance"],
             "encoder": encoder,
             "keep_audio_langs": [l.strip() for l in langs.split(",")],
             "keep_subtitles": True,
@@ -331,7 +327,7 @@ def create_wrapper():
     content = f"""#!/usr/bin/env bash
 # Auto-generated wrapper — runs convert.py inside .venv
 cd "$(dirname "$0")"
-exec "{python}" convert.py "$@"
+exec "{python}" src/convert.py "$@"
 """
     WRAPPER.write_text(content)
     WRAPPER.chmod(0o755)

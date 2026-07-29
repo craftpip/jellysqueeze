@@ -21,7 +21,8 @@ except ImportError:
 
 load_dotenv()
 
-BITRATE_TOLERANCE = int(os.getenv("BITRATE_TOLERANCE", 300))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 TARGET_BR = int(os.getenv("TARGET_BR", 3000))
 MAX_BR = int(os.getenv("MAX_BR", 3300))
 BUFSIZE = int(os.getenv("BUFSIZE", 6000))
@@ -33,11 +34,11 @@ FFMPEG_CMD = "ffmpeg"
 FFPROBE_CMD = "ffprobe"
 AVAILABLE_ENCODERS: set[str] | None = None
 
-DONE_FILE = Path(__file__).parent / "done.txt"
-SIZE_REPORT_FILE = Path(__file__).parent / "size-report.csv"
-PROBE_CACHE_FILE = Path(__file__).parent / "probe-cache.json"
-CONFIG_FILE = Path(__file__).parent / "config.yml"
-LOGS_DIR = Path(__file__).parent / "logs"
+DONE_FILE = PROJECT_ROOT / "var" / "_progress.txt"
+SIZE_REPORT_FILE = PROJECT_ROOT / "var" / "size-report.csv"
+PROBE_CACHE_FILE = PROJECT_ROOT / "var" / "probe-cache.json"
+CONFIG_FILE = PROJECT_ROOT / "config.yml"
+LOGS_DIR = PROJECT_ROOT / "var" / "logs"
 
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".mov", ".webm", ".ts", ".flv", ".wmv"}
 TMP_TAG = ".__transcoding__"  # temp name keeps same container (ext at end)
@@ -386,6 +387,13 @@ def append_size_report(rows: list[tuple[str, int, int]]) -> None:
             f.write(f"{name},{before},{after}\n")
 
 
+def write_per_run_size_report(log_path: Path) -> None:
+    per_run_path = log_path.with_suffix(".size.csv")
+    if SIZE_REPORT_FILE.exists() and SIZE_REPORT_FILE.stat().st_size > 0:
+        per_run_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(SIZE_REPORT_FILE, per_run_path)
+
+
 def load_probe_cache() -> dict[str, dict]:
     if not PROBE_CACHE_FILE.exists():
         return {}
@@ -427,13 +435,11 @@ def get_profile_settings(config: dict, profile_name: str) -> dict | None:
 
 
 def set_profile_globals(profile: dict) -> None:
-    global TARGET_BR, MAX_BR, BUFSIZE, BITRATE_TOLERANCE, TRANSCODER, TRANSCODER_PROFILE, ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS
+    global TARGET_BR, MAX_BR, BUFSIZE, TRANSCODER, TRANSCODER_PROFILE, ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS
     if "target_bitrate" in profile:
         TARGET_BR = int(profile["target_bitrate"])
     if "max_bitrate" in profile:
         MAX_BR = int(profile["max_bitrate"])
-    if "tolerance" in profile:
-        BITRATE_TOLERANCE = int(profile["tolerance"])
     BUFSIZE = MAX_BR * 2
     if "encoder" in profile:
         ok, err = resolve_transcoder(profile["encoder"])
@@ -499,19 +505,18 @@ def run_library_scan(
     profile: dict | None = None,
     ignore_paths: list[str] | None = None,
 ) -> tuple[int, int, int, float, bool]:
-    global TARGET_BR, MAX_BR, BITRATE_TOLERANCE, TRANSCODER, TRANSCODER_PROFILE, ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS
+    global TARGET_BR, MAX_BR, TRANSCODER, TRANSCODER_PROFILE, ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS
 
     if profile:
         old_br = TARGET_BR
         old_max = MAX_BR
-        old_tolerance = BITRATE_TOLERANCE
         old_encoder = TRANSCODER
         old_profile = TRANSCODER_PROFILE
         old_langs = set(ALLOWED_AUDIO_LANGS)
         old_sub_langs = set(ALLOWED_SUBTITLE_LANGS) if ALLOWED_SUBTITLE_LANGS is not None else None
         set_profile_globals(profile)
     else:
-        old_br = old_max = old_tolerance = 0
+        old_br = old_max = 0
         old_encoder = old_profile = ""
         old_langs = set()
         old_sub_langs = None
@@ -550,7 +555,6 @@ def run_library_scan(
         if profile:
             TARGET_BR = old_br
             MAX_BR = old_max
-            BITRATE_TOLERANCE = old_tolerance
             TRANSCODER = old_encoder
             TRANSCODER_PROFILE = old_profile
             ALLOWED_AUDIO_LANGS = old_langs
@@ -575,7 +579,7 @@ def print_startup_banner(
     log_path: str = "",
     workers: int = 1,
 ):
-    threshold = (target_br or TARGET_BR) + BITRATE_TOLERANCE
+    threshold = max_br or MAX_BR
     print(f"Media Convert for Jellyfin")
     print(f"  Mode:      {mode}")
     if libraries:
@@ -1326,7 +1330,7 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
         if br is None:
             return "SKIP", "bitrate_unknown", None
 
-        if br <= TARGET_BR + BITRATE_TOLERANCE:
+        if br <= MAX_BR:
             return "SKIP", f"ok({br}kbps)", None
 
     tmp = tmp_name_for(file)
@@ -1672,7 +1676,7 @@ def main(
 
             if dry_run:
                 br = get_estimated_bitrate_kbps(f)
-                if br is not None and br <= TARGET_BR + BITRATE_TOLERANCE:
+                if br is not None and br <= MAX_BR:
                     skip += 1
                     log.info(f"[{i}/{total}] WOULD_SKIP: {f} :: ok({br}kbps)")
                 else:
@@ -1771,7 +1775,7 @@ def main(
 
             if dry_run:
                 br = get_estimated_bitrate_kbps(f)
-                if br is not None and br <= TARGET_BR + BITRATE_TOLERANCE:
+                if br is not None and br <= MAX_BR:
                     log.info(f"[{i}/{total}] WOULD_SKIP: {f} :: ok({br}kbps)")
                     return {"status": "SKIP", "time_kind": None, "elapsed": 0.0}
                 else:
@@ -2181,7 +2185,6 @@ def main_jellyfin_recent(
                 if profile:
                     old_br = TARGET_BR
                     old_max = MAX_BR
-                    old_tolerance = BITRATE_TOLERANCE
                     old_encoder = TRANSCODER
                     old_profile = TRANSCODER_PROFILE
                     old_langs = set(ALLOWED_AUDIO_LANGS)
@@ -2218,7 +2221,7 @@ def main_jellyfin_recent(
 
         if dry_run:
             br = get_estimated_bitrate_kbps(file_path)
-            if br is not None and br <= TARGET_BR + BITRATE_TOLERANCE:
+            if br is not None and br <= MAX_BR:
                 skip += 1
                 log.info(f"[{i}/{len(unique_files)}] WOULD_SKIP: {file_path} :: ok({br}kbps)")
             else:
@@ -2433,6 +2436,7 @@ Modes:
             main_all(crf, args.verbose, args.workers, args.dry_run, min_savings_pct, ignore_paths)
         except Exception:
             log.exception("Unhandled exception")
+        write_per_run_size_report(log_path)
     elif args.library:
         library_names = parse_name_list(args.library)
         print_startup_banner(f"Library: {args.library}", library_names or [args.library],
@@ -2442,6 +2446,7 @@ Modes:
             main_library(library_names, crf, args.verbose, args.workers, args.dry_run, min_savings_pct, ignore_paths)
         except Exception:
             log.exception("Unhandled exception")
+        write_per_run_size_report(log_path)
     elif args.jellyfin_recent:
         libs = [l.strip() for l in args.libraries.split(",") if l.strip()] if args.libraries else []
         if not libs:
@@ -2454,6 +2459,7 @@ Modes:
             main_jellyfin_recent(libs, args.since_hours, crf, args.verbose, args.workers, args.dry_run, min_savings_pct, ignore_paths)
         except Exception:
             log.exception("Unhandled exception")
+        write_per_run_size_report(log_path)
     elif args.remote:
         host, remote_dir = parse_remote_target(args.remote)
         local_tmp = Path(args.local_tmp).expanduser().resolve() if args.local_tmp else Path("/tmp/convert-remote")
@@ -2466,6 +2472,7 @@ Modes:
             pass
         except Exception:
             log.exception("Unhandled exception")
+        write_per_run_size_report(log_path)
     else:
         scan_dir = args.dir or "."
         print_startup_banner("Direct path", [str(Path(scan_dir).expanduser().resolve())],
@@ -2477,3 +2484,4 @@ Modes:
             pass
         except Exception:
             log.exception("Unhandled exception")
+        write_per_run_size_report(log_path)

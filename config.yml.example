@@ -20,7 +20,6 @@ profiles:
   profile_movies_hd:
     target_bitrate: 3000
     max_bitrate: 4500
-    tolerance: 600
     encoder: nvidia
     keep_audio_langs:
       - eng
@@ -35,7 +34,6 @@ profiles:
   profile_shows:
     target_bitrate: 2000
     max_bitrate: 3000
-    tolerance: 400
     encoder: nvidia
     keep_audio_langs:
       - eng
@@ -50,7 +48,6 @@ profiles:
   profile_movies:
     target_bitrate: 3000
     max_bitrate: 4500
-    tolerance: 600
     encoder: nvidia
     keep_audio_langs:
       - eng
@@ -65,7 +62,6 @@ profiles:
   profile_shows_hd:
     target_bitrate: 2000
     max_bitrate: 3000
-    tolerance: 400
     encoder: nvidia
     keep_audio_langs:
       - eng
