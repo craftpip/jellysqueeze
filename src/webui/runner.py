@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-BASE_DIR = Path(__file__).parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 CONVERT_PY = BASE_DIR / "src" / "convert.py"
 
 

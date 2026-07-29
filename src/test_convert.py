@@ -6,7 +6,7 @@ This test mocks the FFmpeg conversion to test the progress tracking logic
 without requiring actual video processing.
 
 Usage:
-    python3 test_convert.py
+    python3 src/test_convert.py
 """
 
 import sys

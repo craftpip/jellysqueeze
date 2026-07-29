@@ -3,6 +3,7 @@
 **/test_files/*
 !**/test_files/.gitkeep
 __pycache__/
+.pytest_cache/
 venv/
 .venv/
 
@@ -14,7 +15,8 @@ config.yml
 scripts/convert.sh
 
 # All runtime data
-var/
+var/*
+!var/.gitkeep
 nohup.out
 o.txt
 

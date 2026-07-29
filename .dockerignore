@@ -6,9 +6,7 @@ __pycache__/
 *.md
 plans/
 test_files/
-test_convert.py
-setup.py
-convert.sh
+**/convert.sh
 var/
 .env
 config.yml
