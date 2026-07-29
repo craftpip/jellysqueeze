@@ -263,7 +263,7 @@ function buildFlags() {
   if (ig) f.ignore_path = ig.split(',').map(s => s.trim()).filter(Boolean);
   if (document.getElementById('flag-verbose').checked) f.verbose = true;
   if (document.getElementById('flag-dry-run').checked) f.dry_run = true;
-  if (document.getElementById('flag-no-backup').checked) f.no_backup_original = true;
+  if (document.getElementById('flag-no-backup').checked) f.keep_original = true;
   if (document.getElementById('flag-cleanup-tmp').checked) f.cleanup_tmp = true;
   return f;
 }

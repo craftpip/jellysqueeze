@@ -10,11 +10,29 @@ A web panel that wraps `convert.py` — reads `config.yml`, lets the user pick a
 - **Single HTML page** with vanilla JS + CSS — no build step, no npm
 - **WebSocket** for real-time terminal output streaming
 - **asyncio subprocess** to run `convert.py` and capture stdout/stderr live
-- Dependencies: add `fastapi`, `uvicorn`, `websockets` to `requirements.txt`
+- Dependencies: `fastapi`, `uvicorn[standard]`, `websockets` added to `requirements.txt`
 
-## Config sections (new)
+## Status
 
-Add two new optional sections to `config.yml`:
+| Area | Status |
+|---|---|
+| Config sections (webui/mcp in config.yml) | Done |
+| setup.py prompts | Done |
+| convert.py server launch helpers | Done |
+| webui/__init__.py | Done |
+| webui/runner.py (async subprocess mgr) | Done |
+| webui/main.py (FastAPI app, routes, WS) | Done |
+| webui/mcp.py (MCP REST endpoints) | Done |
+| webui/templates/index.html (frontend) | Done |
+| --webui-only / --mcp-only flags | Done |
+| requirements.txt update | Done |
+| Server start + API tests | Done |
+| Browser UI interactive testing | Done (all features verified) |
+| Real conversion run via web UI | Tested (dry-run, ffmpeg not found in test env) |
+
+## Config sections
+
+Two new optional sections in `config.yml`:
 
 ```yaml
 webui:
@@ -30,7 +48,7 @@ mcp:
 
 ### `webui`
 
-Controls the web panel server. When `enabled: false`, the web UI server won't start.
+Controls the web panel server. When `enabled: false`, the web UI server won't start during `convert.py` CLI run.
 
 ### `mcp`
 
@@ -59,74 +77,25 @@ The user picks one of these modes in the UI:
 ### `GET /` — Main panel
 
 Single-page UI with:
-- **Mode selector** (radio buttons or tabs): Direct, All Libraries, Single Library, Jellyfin Recent, Remote
+- **Mode selector** (tabs): Direct, All Libraries, Single Library, Jellyfin Recent, Remote
 - **Directory input** (shown only for Direct mode)
 - **Profile selector** (shown for Direct mode) — dropdown populated from `config.yml` profiles. Selecting a profile pre-fills the flags (bitrate, encoder, etc.)
-- **Library dropdown** (shown for Library / All / Jellyfin Recent modes) — populated from `config.yml` libraries
+- **Library dropdown** (shown for Library / Jellyfin Recent modes) — populated from `config.yml` libraries
 - **All flag controls** (see Flags section below)
 - **Run / Stop buttons**
-- **Terminal output panel**
+- **Terminal output panel** with status bar
 
 ### `GET /api/config` — Fetch config
 
-Returns parsed `config.yml` as JSON:
-```json
-{
-  "libraries": [
-    {"name": "Movies R", "paths": [...], "profile": "profile_movies_r"}
-  ],
-  "profiles": { ... },
-  "webui": {"enabled": true, "host": "0.0.0.0", "port": 8080},
-  "mcp": {"enabled": true, "host": "0.0.0.0", "port": 9090}
-}
-```
+Returns parsed `config.yml` as JSON.
 
 ### `GET /api/env` — Fetch env defaults
 
-Returns current `.env` values as JSON (without secrets):
-```json
-{
-  "TARGET_BR": 3000,
-  "MAX_BR": 3300,
-  "BITRATE_TOLERANCE": 300,
-  "DEFAULT_CRF": 23,
-  "JELLYFIN_BASE_URL": "http://10.69.1.164:8096"
-}
-```
+Returns current `.env` values as JSON (without secrets like API key).
 
 ### `POST /api/run` — Launch conversion
 
-Accepts JSON:
-```json
-{
-  "mode": "direct|all|library|jellyfin_recent|remote",
-  "profile": "profile_movies_r|null",
-  "directory": "/custom/path",
-  "library": "Shows",
-  "flags": {
-    "bitrate": null,
-    "crf": null,
-    "use": "nvidia",
-    "workers": 2,
-    "verbose": true,
-    "dry_run": false,
-    "min_savings": 10,
-    "no_backup_original": false,
-    "exclude": "",
-    "ignore_path": [],
-    "cleanup_tmp": false,
-    "libraries": "Shows,Movies",
-    "since_hours": 72,
-    "remote": "",
-    "local_tmp": ""
-  }
-}
-```
-
-Returns:
-```json
-{ "run_id": "uuid", "command": "python convert.py ..." }
-```
+Accepts JSON with mode, profile, directory/library, flags. Returns `{"run_id": "uuid", "command": "..."}`.
 
 ### `WS /api/ws/{run_id}` — Live output stream
 
@@ -139,7 +108,7 @@ WebSocket pushes lines as they're produced:
 
 ### `POST /api/stop/{run_id}` — Kill running process
 
-Sends SIGTERM. Returns `{"stopped": true}`.
+Sends SIGTERM, then SIGKILL after 5s timeout.
 
 ### `GET /api/status/{run_id}` — Check if still running
 
@@ -149,37 +118,14 @@ Returns `{"running": true/false, "exit_code": null|int}`.
 
 All MCP endpoints return JSON. No authentication for v1 (intended for localhost-only AI tool access).
 
-### `GET /mcp/profiles`
-
-List available profiles from config.yml.
-
-```json
-{
-  "profiles": [
-    {"name": "profile_movies_r", "target_bitrate": 3000, "encoder": "nvidia"}
-  ]
-}
-```
-
-### `GET /mcp/libraries`
-
-List libraries from config.yml with their paths and profiles.
-
-### `POST /mcp/run`
-
-Start a conversion. Same schema as `POST /api/run` but returns immediately with a `run_id`. Output is pushed to a corresponding WebSocket at `WS /mcp/ws/{run_id}`.
-
-### `GET /mcp/status/{run_id}`
-
-Check if a run is still in progress, and get the exit code if finished.
-
-### `POST /mcp/stop/{run_id}`
-
-Kill a running conversion.
-
-### `WS /mcp/ws/{run_id}`
-
-Same live output streaming as the web UI WebSocket, but on the MCP server.
+| Endpoint | Method | Description |
+|---|---|---|
+| `/mcp/profiles` | GET | List available profiles from config.yml |
+| `/mcp/libraries` | GET | List libraries from config.yml with paths and profiles |
+| `/mcp/run` | POST | Start a conversion (same schema as POST /api/run) |
+| `/mcp/status/{run_id}` | GET | Check if a run is still in progress |
+| `/mcp/stop/{run_id}` | POST | Kill a running conversion |
+| `/mcp/ws/{run_id}` | WS | Live output streaming |
 
 ## Config-aware startup
 
@@ -193,7 +139,9 @@ convert.py startup
   └── run normal CLI mode
 ```
 
-Both servers are launched as background processes (or threads) so the CLI still functions normally.
+Both servers are launched as background threads so the CLI still functions normally.
+
+Also supports standalone via `--webui-only` and `--mcp-only` flags.
 
 ## Flags (all CLI arguments mapped)
 
@@ -206,7 +154,7 @@ Both servers are launched as background processes (or threads) so the CLI still 
 | `verbose` | checkbox | false | Debug logs |
 | `dry_run` | checkbox | false | Preview only |
 | `min_savings` | number | 0 | Minimum savings % to keep |
-| `no_backup_original` | checkbox | false | Skip backup |
+| `keep_original` | checkbox | false | Skip backup |
 | `exclude` | text | "" | Comma-separated dir names to skip |
 | `ignore_path` | text (repeatable) | [] | Path substrings to skip |
 | `cleanup_tmp` | checkbox | false | Clean temp files before scan |
@@ -264,29 +212,71 @@ webui/
 # Web UI server standalone
 python -m uvicorn webui.main:app --host 0.0.0.0 --port 8080
 
-# MCP server standalone
-python -m uvicorn webui.mcp:mcp_app --host 0.0.0.0 --port 9090
+# MCP server standalone (needs wrapper — mcp_app is an APIRouter)
+python -c "
+from fastapi import FastAPI
+from webui.mcp import mcp_app
+server = FastAPI()
+server.include_router(mcp_app)
+import uvicorn
+uvicorn.run(server, host='0.0.0.0', port=9090, log_level='info')
+"
+
+# From convert.py (handles wrapping internally)
+python convert.py --webui-only
+python convert.py --mcp-only
 ```
 
 Or both launched automatically from `convert.py` if `webui.enabled` / `mcp.enabled` in config.
 
-## Implementation order
+## Test Results (2026-07-22)
 
-1. Add `webui` and `mcp` sections to `config.yml` and `config.yml.example`.
-2. Update `setup.py` to prompt for webui/mcp enable during config generation.
-3. Add config loading helpers in `convert.py` for `webui` and `mcp` sections.
-4. Scaffold FastAPI app with `/api/config`, `/api/env`, `/api/run`, WebSocket.
-5. Build `webui/runner.py` — asyncio subprocess manager.
-6. Build `webui/mcp.py` — MCP REST endpoints.
-7. Build the frontend HTML: mode selector, flag controls, terminal panel.
-8. Wire everything together and test with `--dry-run` on a small directory.
+All features manually verified in browser and via API tests:
+
+| Test | Result | Notes |
+|---|---|---|
+| Server boots (uvicorn) | ✅ | Returns 200 on `/` |
+| Index page renders all UI elements | ✅ | H1, mode tabs, flag controls, terminal, status bar |
+| `/api/config` returns full config JSON | ✅ | 4 libraries, 4 profiles, webui/mcp settings |
+| `/api/env` returns env defaults | ✅ | No secrets exposed |
+| Mode tab switching | ✅ | Direct, All Libraries, Single Library, Jellyfin Recent, Remote — correct tab-content toggling |
+| Profile dropdown populated from config | ✅ | 4 profiles listed |
+| Profile pre-fill (flag values) | ✅ | encoder→`use`, target_bitrate→`bitrate`, min_savings→`min_savings` |
+| Profile info card | ✅ | Shows encoder, target, max, tolerance, min savings |
+| Library dropdown populated | ✅ | 4 libraries listed with profile names |
+| Direct mode: enter path, click Run | ✅ | Terminal shows command + output |
+| `POST /api/run` returns run_id + command | ✅ | Correct CLI args built for all modes |
+| `GET /api/status/{run_id}` | ✅ | Returns running/exit_code correctly |
+| `POST /api/stop/{run_id}` | ✅ | Returns stopped/error correctly |
+| `WS /api/ws/{run_id}` live streaming | ✅ | stdout/stderr and exit messages received |
+| Timer + status bar on run | ✅ | Shows elapsed time, dot animation |
+| Run/Stop button state management | ✅ | Run disabled while running, Stop active |
+| Process exit → UI cleanup | ✅ | Buttons re-enable, status shows exit code |
+| `--webui-only` flag | ✅ | Starts server on 0.0.0.0:8080 |
+| `--mcp-only` flag | ✅ | Starts server on 0.0.0.0:9090 |
+| MCP `/mcp/profiles` | ✅ | Returns all profiles with settings |
+| MCP `/mcp/libraries` | ✅ | Returns libraries with paths + profile_settings |
+| MCP `/mcp/run` → run_id | ✅ | Process spawned, command returned |
+| MCP `/mcp/status/{run_id}` | ✅ | Running/exit code returned |
+| MCP `/mcp/stop/{run_id}` | ✅ | Stopped/error response |
+| MCP `/mcp/ws/{run_id}` | ✅ | Streaming stdout/stderr/exit works |
+| `POST /api/run` concurrency enforcement | ✅ | Handles 409 when run in progress |
+
+## Known issues
+
+1. **MCP server cannot run as `uvicorn webui.mcp:mcp_app`** — `mcp_app` is an `APIRouter`, not a `FastAPI` app. Must wrap it: create `FastAPI()`, call `include_router(mcp_app)`. The run commands section below has been corrected.
+2. **Encoder dropdown is hardcoded** — UI only shows 5 options (nvidia, intel, amdgpu, cpu, vaapi). Profile with a custom encoder name (e.g. `h264_nvenc`) won't match the dropdown.
+3. **No encoding detection** — the web UI doesn't call `get_available_encoders()` before showing the dropdown.
+4. **Separate RunManager instances** — web UI (port 8080) and MCP server (port 9090) each have their own `RunManager` singleton. Runs started on one aren't visible on the other. This is by design for security isolation but worth noting.
+5. **WebSocket replay timing** — `subscribe()` happens after `get_buffer()` replay. If a process exits between buffer replay and subscribe, the exit message is not replayed to the newly connecting WS client (but IS in the buffer). Mitigation: clients should also poll `/api/status` on WS close.
+6. **Port conflict** — no fallback to random port (not yet implemented).
 
 ## Edge cases
 
-- **ffmpeg not found**: `resolve_ffmpeg_tools()` returns False — route returns error before spawning.
-- **Config not found**: `/api/config` returns `{"config_found": false}` — UI shows a warning.
-- **Config has webui.mcp disabled**: servers are not started; `/api/config` still returns the config values.
-- **Invalid profile encoder**: `resolve_transcoder()` fails — show error in terminal before run.
-- **WebSocket disconnect**: process keeps running; reconnecting replays last 500 lines.
-- **Browser closes mid-run**: process continues to completion (or until stop is requested from another tab).
-- **Port conflict**: log a warning and fall back to a random port.
+- **ffmpeg not found**: `resolve_ffmpeg_tools()` returns False — convert.py will fail at the start and output to terminal
+- **Config not found**: `/api/config` returns `{"config_found": false}` — UI shows a warning
+- **Config has webui/mcp disabled**: servers are not started; `/api/config` still returns the config values
+- **Invalid profile encoder**: `resolve_transcoder()` fails — convert.py logs error and exits
+- **WebSocket disconnect**: process keeps running; reconnecting replays last 500 lines
+- **Browser closes mid-run**: process continues to completion (or until stop is requested from another tab)
+- **Port conflict**: log a warning and fall back to a random port (not yet implemented)

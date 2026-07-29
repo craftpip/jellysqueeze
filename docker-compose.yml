@@ -1,0 +1,26 @@
+services:
+  media-convert:
+    build: .
+    image: media-convert-for-jellyfin
+    container_name: media-convert
+    restart: unless-stopped
+    ports:
+      - "${WEBUI_PORT:-8080}:8080"
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    env_file:
+      - .env
+    volumes:
+      # Project files (persistent state)
+      - "${PWD}/config.yml:/app/config.yml:ro"
+      - "${PWD}/done.txt:/app/done.txt"
+      - "${PWD}/probe-cache.json:/app/probe-cache.json"
+      - "${PWD}/size-report.csv:/app/size-report.csv"
+      - "${PWD}/logs:/app/logs"
+
+      # Media libraries — match paths from config.yml
+      - /mnt/media1t/downloads:/mnt/media1t/downloads
+      - /mnt/media2t/downloads:/mnt/media2t/downloads
+      - /mnt/media3t/downloads:/mnt/media3t/downloads

@@ -81,6 +81,19 @@ Fallback attempts cover: GPU decode failures, unsupported subtitle streams, cove
 | `FFMPEG_BIN` | — | Override ffmpeg binary path |
 | `FFPROBE_BIN` | — | Override ffprobe binary path |
 
+## Known Issues
+
+- **duration_mismatch failure** — Some files fail with `duration_mismatch(source=..., output=...)` meaning the encoded output is shorter than the source by 30-50s. This has hit KonoSuba episodes. The output file exists but is truncated. Not sure if ffmpeg drops frames or seeks wrong.
+- **multiple_or_missing_video_streams** — Some files (Made in Abyss S02, KonoSuba S01E09) have unusual stream layouts that ffprobe can't parse into a clean primary video stream. The probe logic in `build_ffmpeg_cmd()` can't handle these and returns a FAIL.
+- **NVENC p4 preset is slow** — The current run uses `-preset p4` with `h264_nvenc`, which encodes at roughly 1-2x realtime. A 24min episode takes ~1.5-2 hours.
+- **Progress bar only visible in log file** — ffmpeg progress bars (carriage-return based) are logged to the log file but the current percentage can't be seen via `tail` easily since each line overwrites the previous. Use `lsof` or temp file size to estimate progress.
+
+## Fix Patterns
+
+- **Check real encoding progress**: Look at the temp file (`.__transcoding__.mkv`) size growing using `ls -lh`, or check the ffmpeg child process via `pgrep -P <parent_pid> -a`.
+- **Check what file is being processed**: Use `ls -lt done.txt | tail -3` for recent completions, or `find ... -name "*__transcoding__*"` for in-progress files.
+- **Check process health**: Use `ps -o pid,state,etime,pcpu -p <ffmpeg_pid>` to see if ffmpeg is actually encoding vs stuck.
+
 ## Safety
 
 - Temp files (`.__transcoding__`) are cleaned up on startup.

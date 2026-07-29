@@ -74,8 +74,8 @@ def build_convert_cmd(req: dict) -> list[str]:
         cmd.append("--dry-run")
     if f.get("min_savings"):
         cmd.extend(["--min-savings", str(f["min_savings"])])
-    if f.get("no_backup_original"):
-        cmd.append("--no-backup-original")
+    if f.get("keep_original"):
+        cmd.append("--keep-original")
     if f.get("exclude"):
         cmd.extend(["--exclude", f["exclude"]])
     for ip in f.get("ignore_path", []):

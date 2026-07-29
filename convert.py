@@ -53,7 +53,7 @@ ALLOWED_AUDIO_LANGS = {
     "hin", "hi", "hindi",
 }
 ALLOWED_SUBTITLE_LANGS: set[str] | None = None  # None = use ALLOWED_AUDIO_LANGS
-BACKUP_ORIGINALS = True
+BACKUP_ORIGINALS = False
 
 # Codecs supported by each profile's hardware decoder (common codecs across most GPUs)
 CUDA_DECODABLE_CODECS = {"h264", "hevc", "vp9", "mpeg1video", "mpeg2video", "vc1"}
@@ -2346,7 +2346,7 @@ Modes:
     parser.add_argument("--since-hours", type=int, default=72, help="Hours back for recent items (default: 72)")
     parser.add_argument("--dry-run", action="store_true", help="Preview what would be done without modifying files")
     parser.add_argument("--min-savings", type=int, default=0, help="Minimum savings percent to keep converted file (default: 0 = disabled)")
-    parser.add_argument("--no-backup-original", action="store_true", help="Do not keep an original-file backup (unsafe)")
+    parser.add_argument("--keep-original", action="store_true", help="Keep a backup of the original file before replacing it")
     parser.add_argument("--stats", action="store_true", help="Show conversion history from size-report.csv")
     parser.add_argument("--webui-only", action="store_true", help="Start web UI server only (no conversion)")
     parser.add_argument("--mcp-only", action="store_true", help="Start MCP server only (no conversion)")
@@ -2379,7 +2379,7 @@ Modes:
     log_path = Path(args.log_file).expanduser().resolve() if args.log_file else None
     min_savings_pct = args.min_savings if args.min_savings is not None else DEFAULT_MIN_SAVINGS_PCT
     ignore_paths: list[str] = args.ignore_path or []
-    BACKUP_ORIGINALS = not args.no_backup_original
+    BACKUP_ORIGINALS = args.keep_original
 
     # Determine mode for auto log path
     mode_name = "direct"
