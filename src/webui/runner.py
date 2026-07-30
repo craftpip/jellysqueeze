@@ -29,6 +29,8 @@ class RunManager:
         self._exit_code: int | None = None
         self._buffer: list[dict] = []
         self._max_buffer = 500
+        self._terminal_buffer: list[dict] = []
+        self._max_terminal_buffer = 500
         self._listeners: dict[str, Callable] = {}
         self._results: list[dict] = []
         self._summary: dict | None = None
@@ -84,6 +86,9 @@ class RunManager:
     def get_buffer(self) -> list[dict]:
         return list(self._buffer)
 
+    def get_terminal_buffer(self) -> list[dict]:
+        return list(self._terminal_buffer)
+
     @staticmethod
     def _extract_library(cmd: list[str]) -> str | None:
         for i, arg in enumerate(cmd):
@@ -99,6 +104,7 @@ class RunManager:
         self._run_id = uuid.uuid4().hex
         self._exit_code = None
         self._buffer = []
+        self._terminal_buffer = []
         self._results = []
         self._summary = None
         self._folder_totals = {}
@@ -127,6 +133,10 @@ class RunManager:
                     self._buffer = self._buffer[-self._max_buffer:]
                 self._broadcast(msg)
                 self._try_parse_json(text)
+                if not text.startswith("{"):
+                    self._terminal_buffer.append(msg)
+                    if len(self._terminal_buffer) > self._max_terminal_buffer:
+                        self._terminal_buffer = self._terminal_buffer[-self._max_terminal_buffer:]
 
         async def read_stderr(stream):
             while True:
@@ -139,6 +149,9 @@ class RunManager:
                 if len(self._buffer) > self._max_buffer:
                     self._buffer = self._buffer[-self._max_buffer:]
                 self._broadcast(msg)
+                self._terminal_buffer.append(msg)
+                if len(self._terminal_buffer) > self._max_terminal_buffer:
+                    self._terminal_buffer = self._terminal_buffer[-self._max_terminal_buffer:]
 
         self._reader_tasks = [
             asyncio.create_task(read_stdout(self._process.stdout)),
@@ -178,6 +191,7 @@ class RunManager:
             "folder_totals": self._folder_totals,
             "summary": summary,
             "output": buffer_snapshot,
+            "terminal_output": list(self._terminal_buffer),
         }
         self._history_saved = True
         _save_run(run_data)

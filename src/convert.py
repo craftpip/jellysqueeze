@@ -1921,6 +1921,7 @@ def main(
         emit_json("run_status", phase="process", message=f"Processing {total} file(s)...")
         log.info(f"Processing {total} file(s)...")
         for i, f in enumerate(files, 1):
+            emit_json("run_status", phase="checking", message=f"Checking: {f}")
             path = f.resolve().as_posix()
             current_opt = conversion_option(crf, min_savings_pct)
 
@@ -2066,6 +2067,7 @@ def main(
             progress_changed.set()
 
         def process_file(i: int, f: Path) -> dict:
+            emit_json("run_status", phase="checking", message=f"Checking: {f}")
             path = f.resolve().as_posix()
             current_opt = conversion_option(crf, min_savings_pct)
 

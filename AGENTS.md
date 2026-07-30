@@ -52,7 +52,7 @@ Python tool (`convert.py`) that shrinks video files by re-encoding oversized vid
 - `validate_output_media()` — checks duration match + decode validation after encoding
 - `get_resume_seconds()` / `concat_transcode_parts()` — resume partial encodes via concat
 - `state_db.py` — WAL SQLite state shared by converter and Web UI; legacy state files are imported once without deletion
-- `RunManager` in `runner.py` — launches conversion in a dedicated process group (`start_new_session=True`), permits independent library runs, rejects overlapping runs, and stops the full group via `killpg()`. Ring buffer of 500 JSON lines, WebSocket broadcasting via listener callbacks, dual reader tasks for stdout/stderr. `wait()` saves run history only after process exits.
+- `RunManager` in `runner.py` — launches conversion in a dedicated process group (`start_new_session=True`), permits independent library runs, rejects overlapping runs, and stops the full group via `killpg()`. Dual ring buffers: `_buffer` (500, all lines + JSON for parsing) and `_terminal_buffer` (500, non-JSON stdout + stderr only) — keeps log lines from being crowded out by JSON progress events during long encodes. WebSocket broadcasting via listener callbacks, dual reader tasks for stdout/stderr. `wait()` saves run history only after process exits.
 - `build_convert_cmd()` in `main.py` — converts a JSON run request body into `convert.py` CLI args. Mode dispatch: all, library, jellyfin_recent, remote, direct.
 - `start_run()` in `runner.py` — global lock serializes starts. Checks: duplicate library, exclusive modes (`all`, `jellyfin-recent`, direct path). Returns HTTP 409 on overlap.
 - `emit_json()` — structured JSON-lines output for web UI
