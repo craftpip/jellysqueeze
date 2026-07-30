@@ -8,54 +8,112 @@ export default function Dashboard() {
   const [stats, setStats] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [runProgress, setRunProgress] = useState({})
   const navigate = useNavigate()
-  useEffect(() => setPageTitle('Libraries'), [setPageTitle])
+  useEffect(() => setPageTitle('Dashboard'), [setPageTitle])
 
   useEffect(() => {
+    let mounted = true
     async function load() {
       try {
         const [libsRes, statsRes] = await Promise.all([
           api('GET', '/api/libraries'),
           api('GET', '/api/stats'),
         ])
+        if (!mounted) return
         setLibs(libsRes.libraries || [])
         setStats(statsRes)
         setError('')
+
+        const running = (libsRes.libraries || []).filter(l => l.running && l.active_run_id)
+        if (running.length) {
+          const progress = {}
+          await Promise.all(running.map(async lib => {
+            try {
+              const st = await api('GET', '/api/status/' + lib.active_run_id)
+              if (st) {
+                const done = (st.results || []).length
+                const totals = st.folder_totals || {}
+                const total = Object.values(totals).reduce((a, b) => a + b, 0)
+                progress[lib.active_run_id] = { done, total }
+              }
+            } catch {}
+          }))
+          if (mounted) setRunProgress(progress)
+        } else if (mounted) {
+          setRunProgress({})
+        }
       } catch (err) {
-        setError(err.message)
+        if (mounted) setError(err.message)
       }
-      setLoading(false)
+      if (mounted) setLoading(false)
     }
     load()
     const iv = setInterval(load, 5000)
-    return () => clearInterval(iv)
+    return () => { mounted = false; clearInterval(iv) }
   }, [])
 
   if (loading) return <div className="loading-overlay" style={{ position: 'relative', height: 200 }}><div className="spinner"></div></div>
 
   const savedGb = ((stats.total_saved_mb || 0) / 1024).toFixed(2)
 
-  const startRun = async (mode, library) => {
-    const body = mode === 'all' ? { mode: 'all', flags: {} } : { mode: 'library', library, flags: {} }
+  const runAll = async () => {
     try {
-      const data = await api('POST', '/api/run', body)
+      const data = await api('POST', '/api/run', { mode: 'all', flags: {} })
       navigate('/run-detail/' + data.run_id)
     } catch (err) {
       setError(err.message)
     }
   }
 
+  const runLib = async (e, name) => {
+    e.stopPropagation()
+    try {
+      const data = await api('POST', '/api/run', { mode: 'library', library: name, flags: {} })
+      navigate('/run-detail/' + data.run_id)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const openLibrary = (name) => {
+    navigate('/library-detail/' + encodeURIComponent(name))
+  }
+
+  const openLiveRun = (e, runId) => {
+    e.stopPropagation()
+    navigate('/run-detail/' + runId)
+  }
+
   return (
     <>
-      <div className="stats-line">
-        <span>{stats.total_runs ?? 0} runs</span>
-        <span className="sep">&middot;</span>
-        <span>{libs.length} libraries</span>
-        <span className="sep">&middot;</span>
-        <span>{stats.total_ok ?? 0} converted</span>
-        <span className="sep">&middot;</span>
-        <span>{savedGb} GB saved</span>
+      <div className="stats-grid">
+        <div className="stat-block">
+          <span className="num">{stats.total_runs ?? 0}</span>
+          <span className="lbl">runs</span>
+        </div>
+        <div className="stat-block">
+          <span className="num">{libs.length}</span>
+          <span className="lbl">libraries</span>
+        </div>
+        <div className="stat-block">
+          <span className="num">{stats.total_ok ?? 0}</span>
+          <span className="lbl">ok</span>
+        </div>
+        <div className="stat-block">
+          <span className="num">{stats.total_skip ?? 0}</span>
+          <span className="lbl">skip</span>
+        </div>
+        <div className="stat-block">
+          <span className="num">{stats.total_fail ?? 0}</span>
+          <span className="lbl">fail</span>
+        </div>
+        <div className="stat-block">
+          <span className="num">{savedGb}</span>
+          <span className="lbl">GB saved</span>
+        </div>
       </div>
+
       {error && <div className="error-message">{error}</div>}
 
       {!libs.length ? (
@@ -66,28 +124,41 @@ export default function Dashboard() {
             <h2>Libraries</h2>
             <div className="dash-actions">
               <button className="link-btn" onClick={() => navigate('/new-library')}>+ New Library</button>
-              <button className="link-btn primary" onClick={() => startRun('all')}>Run All</button>
+              <button className="link-btn primary" onClick={runAll}>Run All</button>
             </div>
           </div>
-          <table className="libs-table"><thead><tr><th>Name</th><th>Status</th><th>Folders</th><th>Encoder</th><th>Bitrate</th><th>Saved</th><th></th></tr></thead><tbody>
+          <table className="libs-table"><thead><tr><th>Name</th><th>Status</th><th>Encoder</th><th>Bitrate</th><th>Saved</th><th></th></tr></thead><tbody>
             {libs.map(lib => {
               const p = lib.profile || {}
               const saved = lib.total_saved_mb > 0 ? (lib.total_saved_mb / 1024).toFixed(2) + ' GB' : '-'
-              const paths = lib.paths || []
               const enc = p.encoder || 'nvidia'
               const isRunning = lib.running
               const lastRun = lib.last_run ? relTime(lib.last_run) : null
+              const prog = lib.active_run_id ? runProgress[lib.active_run_id] : null
               return (
-                <tr key={lib.name} className={isRunning ? 'row-running' : ''}>
-                  <td><strong>{lib.name}</strong></td>
-                  <td>{isRunning ? <span className="running-indicator">Running</span> : lastRun ? <span className="ago">{lastRun}</span> : <span className="ago">-</span>}</td>
-                  <td><span className="folder-count">{paths.length}</span></td>
+                <tr key={lib.name} className={'clickable' + (isRunning ? ' row-running' : '')} onClick={() => openLibrary(lib.name)}>
+                  <td><span className="lib-name">{lib.name}</span></td>
+                  <td>
+                    {isRunning ? (
+                      <span className="status-running">
+                        <span className="pulse-dot"></span>
+                        Running
+                        {prog && prog.total > 0 ? (
+                          <span className="progress-frac">  {prog.done}/{prog.total}</span>
+                        ) : null}
+                        <button className="live-link" onClick={e => openLiveRun(e, lib.active_run_id)}>Live</button>
+                      </span>
+                    ) : lastRun ? (
+                      <span className="status-idle">{lastRun}</span>
+                    ) : (
+                      <span className="status-idle">-</span>
+                    )}
+                  </td>
                   <td><span className="mono">{enc}</span></td>
                   <td><span className="mono">{p.target_bitrate || '-'}k</span></td>
                   <td><span className="mono">{saved}</span></td>
-                  <td className="actions-cell">
-                    <button className="link-btn" onClick={() => navigate('/library-detail/' + encodeURIComponent(lib.name))}>View</button>
-                    <button className="link-btn primary" onClick={() => startRun('library', lib.name)} disabled={isRunning}>Convert</button>
+                  <td className="cell-actions">
+                    <button className="link-btn primary" onClick={e => runLib(e, lib.name)} disabled={isRunning}>Convert</button>
                   </td>
                 </tr>
               )

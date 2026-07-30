@@ -69,11 +69,40 @@ input[type="checkbox"]{width:16px;height:16px;accent-color:#4c9aff}
 .text-red{color:#e05050}
 .w-full{width:100%}
 .run-terminal{background:#1e1e1e;color:#33ff33;font-family:'Consolas','Courier New',monospace;font-size:12px;padding:12px;border:1px solid #333;border-radius:4px;min-height:200px;max-height:400px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.4}
-.stats-bar{display:flex;gap:8px;flex-wrap:wrap}
-.stats-bar .stat-box{background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:8px 14px;font-size:13px;color:#999}
-.stats-bar .stat-box strong{color:#e0e0e0;font-weight:600}
-.action-bar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
-.lib-path-count{background:#333;border-radius:3px;padding:0 6px;font-size:11px;color:#999}
+.stats-grid{display:flex;gap:32px;padding:8px 0 20px}
+.stat-block{display:flex;flex-direction:column;gap:1px}
+.stat-block .num{font-size:24px;font-weight:700;color:#e0e0e0;line-height:1.1;letter-spacing:-.5px}
+.stat-block .lbl{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.6px}
+
+.dash-header{display:flex;align-items:center;margin-bottom:8px}
+.dash-header h2{font-size:15px;font-weight:600;color:#e0e0e0;flex:1;margin:0}
+.dash-actions{display:flex;gap:16px;align-items:center}
+
+.link-btn{background:none;border:none;padding:0;font:inherit;font-size:13px;color:#666;cursor:pointer;transition:color .15s;line-height:1}
+.link-btn:hover{color:#e0e0e0}
+.link-btn.primary{color:#4c9aff}
+.link-btn.primary:hover{color:#6ab0ff}
+.link-btn:disabled{opacity:.35;cursor:default}
+
+.libs-table{width:100%;border-collapse:collapse;font-size:13px}
+.libs-table thead{border-bottom:1px solid #2a2a2a}
+.libs-table th{padding:8px 10px;text-align:left;font-weight:500;font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.4px}
+.libs-table td{padding:9px 10px;border-bottom:1px solid #1c1c1c;color:#999;vertical-align:middle}
+.libs-table tbody tr{cursor:pointer}
+.libs-table tbody tr:hover td{background:#181818}
+.libs-table td .lib-name{color:#e0e0e0;font-weight:500}
+
+.status-running{color:#4c9aff;font-size:12px;display:inline-flex;align-items:center;gap:5px}
+.pulse-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:#4c9aff;animation:pulse 1s infinite;flex-shrink:0}
+.progress-frac{color:#666}
+.live-link{background:none;border:none;padding:0;font:inherit;font-size:12px;color:#4c9aff;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.live-link:hover{color:#6ab0ff}
+.status-idle{color:#555;font-size:12px}
+
+.libs-table td .mono{font-family:'Consolas','Courier New',monospace;font-size:12px;color:#777}
+
+.cell-actions{text-align:right;white-space:nowrap}
+.cell-actions .link-btn{margin-left:14px}
 .hidden{display:none!important}
 .loading-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(18,18,18,.7);display:flex;align-items:center;justify-content:center;z-index:200;transition:opacity .2s}
 .loading-overlay.hidden{opacity:0;pointer-events:none}
