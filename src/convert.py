@@ -2021,6 +2021,9 @@ def main(
                     probe_cache_dirty = True
                 log.error(f"[{i}/{total}] FAIL: {f} :: {msg}")
                 emit_json("result", file=str(f), status="FAIL", msg=msg)
+            if probe_cache_dirty:
+                save_probe_cache(probe_cache)
+                probe_cache_dirty = False
             print_progress(i, total, ok, skip, fail, progress_started, workers)
 
         if not JSON_MODE:
@@ -2222,6 +2225,9 @@ def main(
                         probe_cache_dirty = False
                 if size_row:
                     size_rows.append(size_row)
+                if probe_cache_dirty:
+                    save_probe_cache(probe_cache)
+                    probe_cache_dirty = False
 
                 with progress_cb_lock:
                     snap = dict(converting_progress)
@@ -2637,13 +2643,12 @@ def main_jellyfin_recent(
                 probe_cache_dirty = True
             log.error(f"[{i}/{len(unique_files)}] FAIL: {file_path} :: {msg}")
             emit_json("result", file=str(file_path), status="FAIL", msg=msg)
+        if probe_cache_dirty:
+            save_probe_cache(probe_cache)
+            probe_cache_dirty = False
 
     (TARGET_BR, MAX_BR, BUFSIZE, TRANSCODER, TRANSCODER_PROFILE,
      ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS) = base_settings
-
-    if probe_cache_dirty:
-        log.info(f"Saving probe cache ({len(probe_cache)} entries)...")
-        save_probe_cache(probe_cache)
 
     elapsed = time.perf_counter() - started
     print_summary(len(library_names), len(unique_files), ok, skip, fail, space_saved_mb, elapsed)

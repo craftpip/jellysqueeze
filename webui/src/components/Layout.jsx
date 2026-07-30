@@ -30,10 +30,10 @@ export default function Layout() {
         <div className="topbar-left">
           <h1>Media Convert</h1>
           <ul className="nav">
-            <li><NavLink to="/" end><span>&#9632;</span> Dashboard</NavLink></li>
-            <li><NavLink to="/new-library"><span>+</span> New Library</NavLink></li>
-            <li><NavLink to="/runs"><span>&#9776;</span> Run History</NavLink></li>
-            <li><NavLink to="/settings"><span>&#9881;</span> Settings</NavLink></li>
+            <li><NavLink to="/" end>Dashboard</NavLink></li>
+            <li><NavLink to="/new-library">New Library</NavLink></li>
+            <li><NavLink to="/runs">Run History</NavLink></li>
+            <li><NavLink to="/settings">Settings</NavLink></li>
           </ul>
         </div>
         <div className="topbar-stats">

@@ -69,15 +69,9 @@ input[type="checkbox"]{width:16px;height:16px;accent-color:#4c9aff}
 .text-red{color:#e05050}
 .w-full{width:100%}
 .run-terminal{background:#1e1e1e;color:#33ff33;font-family:'Consolas','Courier New',monospace;font-size:12px;padding:12px;border:1px solid #333;border-radius:4px;min-height:200px;max-height:400px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.4}
-.stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
-.stat-card{background:#252525;border:1px solid #444;border-radius:6px;padding:14px;text-align:center;position:relative;overflow:hidden}
-.stat-card .value{font-size:24px;font-weight:700;color:#fff}
-.stat-card .label{font-size:11px;color:#999;margin-top:2px}
-.stat-card .icon{font-size:28px;margin-bottom:4px}
-.stat-card.accent-blue{border-top:3px solid #4c9aff}
-.stat-card.accent-green{border-top:3px solid #33ff33}
-.stat-card.accent-orange{border-top:3px solid #ff9933}
-.stat-card.accent-purple{border-top:3px solid #9966ff}
+.stats-bar{display:flex;gap:8px;flex-wrap:wrap}
+.stats-bar .stat-box{background:#1e1e1e;border:1px solid #333;border-radius:6px;padding:8px 14px;font-size:13px;color:#999}
+.stats-bar .stat-box strong{color:#e0e0e0;font-weight:600}
 .action-bar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
 .lib-path-count{background:#333;border-radius:3px;padding:0 6px;font-size:11px;color:#999}
 .hidden{display:none!important}

@@ -235,92 +235,95 @@ export default function RunDetail() {
       </div>
       {error && <div className="error-message">{error}</div>}
 
-      <div id="card-info" className="card">
-        <div className="detail-row"><span className="label">Library</span><span className="value">{library || '—'}</span></div>
-        <div className="detail-row"><span className="label">Started</span><span className="value">{startedStr}</span></div>
-        {!running && <div className="detail-row"><span className="label">Ended</span><span className="value">{endedStr}</span></div>}
-        {!running && <div className="detail-row"><span className="label">Exit code</span><span className="value">{exitCode != null ? exitCode : '—'}</span></div>}
-        <div className="detail-row"><span className="label">OK/Skip/Fail</span><span className="value">{okCount} / {skipCount} / {failCount}</span></div>
-        <div className="detail-row"><span className="label">Space saved</span><span className="value">{saved}</span></div>
-        <div className="detail-row"><span className="label">Files processed</span><span className="value">{results.length}</span></div>
-        <div className="detail-row"><span className="label">Files total</span><span className="value">{runTotal || '—'}</span></div>
+      <div className="run-detail-grid" style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        <div className="run-detail-left" style={{ flex: 1, minWidth: 0 }}>
+          <div id="card-info" className="card">
+            <div className="detail-row"><span className="label">Library</span><span className="value">{library || '—'}</span></div>
+            <div className="detail-row"><span className="label">Started</span><span className="value">{startedStr}</span></div>
+            {!running && <div className="detail-row"><span className="label">Ended</span><span className="value">{endedStr}</span></div>}
+            {!running && <div className="detail-row"><span className="label">Exit code</span><span className="value">{exitCode != null ? exitCode : '—'}</span></div>}
+            <div className="detail-row"><span className="label">OK/Skip/Fail</span><span className="value">{okCount} / {skipCount} / {failCount}</span></div>
+            <div className="detail-row"><span className="label">Space saved</span><span className="value">{saved}</span></div>
+            <div className="detail-row"><span className="label">Files processed</span><span className="value">{results.length}</span></div>
+            <div className="detail-row"><span className="label">Files total</span><span className="value">{runTotal || '—'}</span></div>
+          </div>
+        </div>
+        <div className="run-detail-right" style={{ flex: 1, minWidth: 0 }}>
+          {running && runTotal > 0 && (
+            <div id="card-run-progress" className="card" style={{ padding: '10px 16px' }}>
+              <div className="flex items-center gap-8" style={{ marginBottom: 6 }}>
+                <span className="text-muted" style={{ fontSize: 12, minWidth: 82 }}>Run Progress</span>
+                <span className="text-muted" style={{ flex: 1, fontSize: 12 }}>OK {okCount} / Skip {skipCount} / Fail {failCount}</span>
+                <span className="text-muted" style={{ fontSize: 12, minWidth: 150, textAlign: 'right' }}>{results.length} / {runTotal} ({runPct.toFixed(1)}%)</span>
+              </div>
+              <div style={{ height: 6, background: '#2a2a2a', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: runPct + '%', background: '#66bb6a', borderRadius: 3, transition: 'width .3s ease' }}></div>
+              </div>
+            </div>
+          )}
+
+          {running && activeFiles.length > 0 && (
+            <div id="card-encoding-progress" className="card" style={{ padding: '10px 16px' }}>
+              {activeFiles.map(([file, progress], index) => {
+                const fileName = file.split(/[\\/]/).pop()
+                return (
+                  <div key={file} style={{ marginTop: index ? 10 : 0 }}>
+                    <div className="flex items-center gap-8" style={{ marginBottom: 6 }}>
+                      <span className="text-muted" style={{ fontSize: 12, minWidth: 50 }}>{progress.finalizing ? 'Finalizing' : 'Encoding'}</span>
+                      <span className="file" title={file} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#ccc' }}>{fileName}</span>
+                      <span className="text-muted" style={{ fontSize: 12, minWidth: 140, textAlign: 'right' }}>
+                        {progress.finalizing
+                          ? ''
+                          : (progress.positionSeconds != null && progress.durationSeconds
+                            ? formatDuration(progress.positionSeconds) + ' / ' + formatDuration(progress.durationSeconds) + ' (' + progress.percent.toFixed(1) + '%)'
+                            : (progress.frameCount != null && progress.totalFrames
+                              ? 'Frame ' + progress.frameCount.toLocaleString() + ' / ~' + progress.totalFrames.toLocaleString()
+                            : progress.percent.toFixed(1) + '%'))}
+                      </span>
+                    </div>
+                    <div style={{ height: 6, background: '#2a2a2a', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: progress.percent + '%', background: '#4c9aff', borderRadius: 3, transition: 'width .3s ease' }}></div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {running && activeFiles.length === 0 && runStatus.message && (
+            <div id="card-run-status" className="card" style={{ padding: '8px 16px', fontSize: 13, color: '#999' }}>
+              {runStatus.message}
+            </div>
+          )}
+
+          {running && folderEntries.length > 1 && (
+            <div id="card-directory-progress" className="card" style={{ padding: '10px 16px' }}>
+              <div className="flex items-center gap-8" style={{ marginBottom: 8 }}>
+                <span className="text-muted" style={{ fontSize: 12 }}>Directory Progress</span>
+              </div>
+              {folderEntries.map(({ root, total, done, status }) => {
+                const pct = total > 0 ? done / total * 100 : 0
+                const label = root
+                return (
+                  <div key={root} style={{ marginTop: 6 }}>
+                    <div className="flex items-center gap-8" style={{ marginBottom: 4 }}>
+                      <span className={'tag ' + status} style={{ minWidth: 100, textAlign: 'center' }}>
+                        {status === 'active' ? 'Encoding' : status === 'complete' ? 'Done' : 'Pending'}
+                      </span>
+                      <span className="file" title={root} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#ccc' }}>{label}</span>
+                      <span className="text-muted" style={{ fontSize: 12, minWidth: 100, textAlign: 'right' }}>{done} / {total}</span>
+                    </div>
+                    <div style={{ height: 4, background: '#2a2a2a', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: pct + '%', borderRadius: 2, transition: 'width .3s ease',
+                        background: status === 'active' ? '#4c9aff' : status === 'complete' ? '#66bb6a' : '#555' }}></div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
-
-      {running && runTotal > 0 && (
-        <div id="card-run-progress" className="card" style={{ padding: '10px 16px' }}>
-          <div className="flex items-center gap-8" style={{ marginBottom: 6 }}>
-            <span className="text-muted" style={{ fontSize: 12, minWidth: 82 }}>Run Progress</span>
-            <span className="text-muted" style={{ flex: 1, fontSize: 12 }}>OK {okCount} / Skip {skipCount} / Fail {failCount}</span>
-            <span className="text-muted" style={{ fontSize: 12, minWidth: 150, textAlign: 'right' }}>{results.length} / {runTotal} ({runPct.toFixed(1)}%)</span>
-          </div>
-          <div style={{ height: 6, background: '#2a2a2a', borderRadius: 3, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: runPct + '%', background: '#66bb6a', borderRadius: 3, transition: 'width .3s ease' }}></div>
-          </div>
-        </div>
-      )}
-
-      {running && activeFiles.length > 0 && (
-        <div id="card-encoding-progress" className="card" style={{ padding: '10px 16px' }}>
-          {activeFiles.map(([file, progress], index) => {
-            const fileName = file.split(/[\\/]/).pop()
-            return (
-              <div key={file} style={{ marginTop: index ? 10 : 0 }}>
-                <div className="flex items-center gap-8" style={{ marginBottom: 6 }}>
-                  <span className="text-muted" style={{ fontSize: 12, minWidth: 50 }}>{progress.finalizing ? 'Finalizing' : 'Encoding'}</span>
-                  <span className="file" title={file} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#ccc' }}>{fileName}</span>
-                  <span className="text-muted" style={{ fontSize: 12, minWidth: 140, textAlign: 'right' }}>
-                    {progress.finalizing
-                      ? ''
-                      : (progress.positionSeconds != null && progress.durationSeconds
-                        ? formatDuration(progress.positionSeconds) + ' / ' + formatDuration(progress.durationSeconds) + ' (' + progress.percent.toFixed(1) + '%)'
-                        : (progress.frameCount != null && progress.totalFrames
-                          ? 'Frame ' + progress.frameCount.toLocaleString() + ' / ~' + progress.totalFrames.toLocaleString()
-                        : progress.percent.toFixed(1) + '%'))}
-                  </span>
-                </div>
-                <div style={{ height: 6, background: '#2a2a2a', borderRadius: 3, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: progress.percent + '%', background: '#4c9aff', borderRadius: 3, transition: 'width .3s ease' }}></div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {running && activeFiles.length === 0 && runStatus.message && (
-        <div id="card-run-status" className="card" style={{ padding: '8px 16px', fontSize: 13, color: '#999' }}>
-          {runStatus.message}
-        </div>
-      )}
-
-      {running && folderEntries.length > 1 && (
-        <div id="card-directory-progress" className="card" style={{ padding: '10px 16px' }}>
-          <div className="flex items-center gap-8" style={{ marginBottom: 8 }}>
-            <span className="text-muted" style={{ fontSize: 12 }}>Directory Progress</span>
-          </div>
-          {folderEntries.map(({ root, total, done, status }) => {
-            const pct = total > 0 ? done / total * 100 : 0
-            const label = root
-            return (
-              <div key={root} style={{ marginTop: 6 }}>
-                <div className="flex items-center gap-8" style={{ marginBottom: 4 }}>
-                  <span className={'tag ' + status} style={{ minWidth: 100, textAlign: 'center' }}>
-                    {status === 'active' ? 'Encoding' : status === 'complete' ? 'Done' : 'Pending'}
-                  </span>
-                  <span className="file" title={root} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#ccc' }}>{label}</span>
-                  <span className="text-muted" style={{ fontSize: 12, minWidth: 100, textAlign: 'right' }}>{done} / {total}</span>
-                </div>
-                <div style={{ height: 4, background: '#2a2a2a', borderRadius: 2, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: pct + '%', borderRadius: 2, transition: 'width .3s ease',
-                    background: status === 'active' ? '#4c9aff' : status === 'complete' ? '#66bb6a' : '#555' }}></div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      <div id="card-terminal" className="run-terminal" ref={outputRef} style={{ height: 300 }}>{lines.join('\n')}</div>
 
       {results.length > 0 && (
         <div id="card-processed-files" className="card">
@@ -349,6 +352,8 @@ export default function RunDetail() {
           </tbody></table>
         </div>
       )}
+
+      <div id="card-terminal" className="run-terminal" ref={outputRef} style={{ height: 300, marginBottom: 16 }}>{lines.join('\n')}</div>
     </>
   )
 }
