@@ -5,517 +5,829 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Media Convert for Jellyfin</title>
 <style>
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #121212; color: #e0e0e0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; font-size: 14px; line-height: 1.5; padding: 20px; }
-.container { max-width: 1200px; margin: 0 auto; }
-h1 { font-size: 20px; font-weight: 600; margin-bottom: 16px; color: #fff; }
-h2 { font-size: 15px; font-weight: 600; margin-bottom: 8px; color: #ccc; }
-.card { background: #1e1e1e; border: 1px solid #333; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-.row.gap8 { gap: 8px; }
-.col { display: flex; flex-direction: column; gap: 4px; }
-label { font-size: 12px; color: #999; font-weight: 500; }
-input, select, button { font-size: 13px; padding: 6px 10px; border: 1px solid #444; border-radius: 4px; background: #2a2a2a; color: #e0e0e0; outline: none; }
-input:focus, select:focus { border-color: #4c9aff; }
-input[type="checkbox"] { width: 16px; height: 16px; accent-color: #4c9aff; }
-input[type="number"] { width: 100px; }
-select { cursor: pointer; }
-button { cursor: pointer; padding: 7px 16px; font-weight: 500; border: none; border-radius: 4px; transition: background .15s; }
-button.primary { background: #4c9aff; color: #fff; }
-button.primary:hover { background: #3a7de0; }
-button.primary:disabled { background: #2a5a9f; opacity: .5; cursor: default; }
-button.danger { background: #e05050; color: #fff; }
-button.danger:hover { background: #c04040; }
-button.danger:disabled { opacity: .5; cursor: default; }
-.tabs { display: flex; gap: 0; margin-bottom: 0; border-bottom: 1px solid #333; }
-.tab { padding: 8px 16px; cursor: pointer; border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; font-size: 13px; color: #999; background: transparent; transition: all .15s; }
-.tab:hover { color: #ccc; background: #222; }
-.tab.active { color: #4c9aff; border-color: #333; background: #1e1e1e; border-bottom-color: #1e1e1e; margin-bottom: -1px; }
-.tab-content { display: none; }
-.tab-content.active { display: block; }
-.flag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
-.flag-item { display: flex; flex-direction: column; gap: 2px; }
-.flag-item.checkbox { flex-direction: row; align-items: center; gap: 6px; }
-.flag-item.checkbox label { margin-bottom: 0; }
-#terminal { background: #1e1e1e; color: #33ff33; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; padding: 12px; border: 1px solid #333; border-radius: 4px; height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; line-height: 1.4; }
-#terminal::-webkit-scrollbar { width: 8px; }
-#terminal::-webkit-scrollbar-track { background: #1e1e1e; }
-#terminal::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
-.status-bar { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: #2a2a2a; border: 1px solid #333; border-top: none; border-radius: 0 0 4px 4px; font-size: 12px; }
-.status-bar .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.dot.running { background: #33ff33; animation: pulse 1s infinite; }
-.dot.stopped { background: #e05050; }
-.dot.idle { background: #666; }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
-.ctrl-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
-.hidden { display: none !important; }
-.profile-info { background: #252525; border: 1px solid #444; border-radius: 4px; padding: 8px 12px; margin-top: 8px; font-size: 12px; color: #aaa; }
-.profile-info strong { color: #ccc; }
-.warning { background: #332200; border: 1px solid #665500; border-radius: 4px; padding: 8px 12px; color: #ffcc00; font-size: 13px; margin-bottom: 12px; }
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:#121212;color:#e0e0e0;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;font-size:14px;line-height:1.5}
+.app{display:flex;height:100vh}
+.sidebar{width:220px;background:#1a1a1a;border-right:1px solid #333;display:flex;flex-direction:column;flex-shrink:0}
+.sidebar h1{font-size:15px;font-weight:600;padding:16px;color:#fff;border-bottom:1px solid #333}
+.nav{list-style:none;padding:8px 0}
+.nav li{padding:10px 16px;cursor:pointer;color:#999;display:flex;align-items:center;gap:8px;font-size:13px;transition:all .15s}
+.nav li:hover{color:#ccc;background:#222}
+.nav li.active{color:#4c9aff;background:#1e2a3a;border-right:2px solid #4c9aff}
+.nav li .badge{margin-left:auto;background:#333;color:#999;font-size:11px;padding:1px 7px;border-radius:8px}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.topbar{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid #333;background:#1a1a1a;flex-shrink:0}
+.topbar h2{font-size:16px;font-weight:600;color:#fff}
+.topbar .status{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:12px;color:#999}
+.topbar .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.running{background:#33ff33;animation:pulse 1s infinite}
+.dot.stopped{background:#e05050}
+.dot.idle{background:#666}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.content{flex:1;overflow-y:auto;padding:20px}
+.page{display:none}
+.page.active{display:block}
+.card{background:#1e1e1e;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:16px}
+.card h3{font-size:14px;font-weight:600;margin-bottom:10px;color:#ccc}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #333}
+th{color:#999;font-weight:500;font-size:12px;text-transform:uppercase}
+td{color:#e0e0e0}
+tr:hover td{background:#252525}
+.btn{padding:7px 14px;border:none;border-radius:4px;cursor:pointer;font-size:13px;font-weight:500;transition:background .15s}
+.btn.primary{background:#4c9aff;color:#fff}
+.btn.primary:hover{background:#3a7de0}
+.btn.danger{background:#e05050;color:#fff}
+.btn.danger:hover{background:#c04040}
+.btn.outline{background:transparent;border:1px solid #555;color:#ccc}
+.btn.outline:hover{background:#2a2a2a}
+.btn.sm{padding:4px 10px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:default}
+.form-row{display:flex;gap:12px;margin-bottom:12px;align-items:flex-start}
+.form-row .field{flex:1;display:flex;flex-direction:column;gap:3px}
+.form-row .field label{font-size:12px;color:#999;font-weight:500}
+.form-row .field input,.form-row .field select{font-size:13px;padding:7px 10px;border:1px solid #444;border-radius:4px;background:#2a2a2a;color:#e0e0e0;outline:none}
+.form-row .field input:focus,.form-row .field select:focus{border-color:#4c9aff}
+.form-row .field input.error{border-color:#e05050}
+.form-row .field .hint{font-size:11px;color:#666}
+.form-row .field .hint.valid{color:#33ff33}
+.form-row .field .hint.invalid{color:#e05050}
+.form-row .field.checkbox{flex-direction:row;align-items:center;gap:6px;padding-top:16px}
+.form-row .field.checkbox label{margin-bottom:0}
+input[type="checkbox"]{width:16px;height:16px;accent-color:#4c9aff}
+.path-list{display:flex;flex-direction:column;gap:4px}
+.path-item{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#2a2a2a;border:1px solid #444;border-radius:4px;font-size:12px;font-family:monospace}
+.path-item .remove{cursor:pointer;color:#e05050;font-weight:bold}
+.path-item .check{color:#33ff33}
+.path-item .cross{color:#e05050}
+.tag{display:inline-block;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:500}
+.tag.ok{background:#1a3a1a;color:#33ff33}
+.tag.skip{background:#3a3a1a;color:#cccc33}
+.tag.fail{background:#3a1a1a;color:#e05050}
+.tag.running{background:#1a2a3a;color:#4c9aff;animation:pulse 1s infinite}
+.empty{text-align:center;padding:40px;color:#666;font-size:13px}
+.mb-8{margin-bottom:8px}
+.mt-8{margin-top:8px}
+.flex{display:flex}
+.gap-8{gap:8px}
+.gap-4{gap:4px}
+.items-center{align-items:center}
+.ml-auto{margin-left:auto}
+.text-muted{color:#999;font-size:12px}
+.text-green{color:#33ff33}
+.text-red{color:#e05050}
+.w-full{width:100%}
+.run-terminal{background:#1e1e1e;color:#33ff33;font-family:'Consolas','Courier New',monospace;font-size:12px;padding:12px;border:1px solid #333;border-radius:4px;height:400px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.4}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
+.stat-card{background:#252525;border:1px solid #444;border-radius:6px;padding:14px;text-align:center;position:relative;overflow:hidden}
+.stat-card .value{font-size:24px;font-weight:700;color:#fff}
+.stat-card .label{font-size:11px;color:#999;margin-top:2px}
+.stat-card .icon{font-size:28px;margin-bottom:4px}
+.stat-card.accent-blue{border-top:3px solid #4c9aff}
+.stat-card.accent-green{border-top:3px solid #33ff33}
+.stat-card.accent-orange{border-top:3px solid #ff9933}
+.stat-card.accent-purple{border-top:3px solid #9966ff}
+.action-bar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.lib-path-count{background:#333;border-radius:3px;padding:0 6px;font-size:11px;color:#999}
+.hidden{display:none!important}
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:100}
+.modal{background:#1e1e1e;border:1px solid #444;border-radius:8px;padding:20px;width:600px;max-height:80vh;overflow-y:auto}
+.modal h3{font-size:15px;font-weight:600;margin-bottom:14px;color:#fff}
+.detail-row{display:flex;gap:8px;padding:6px 0;border-bottom:1px solid #2a2a2a;font-size:13px}
+.detail-row .label{color:#999;min-width:120px}
+.detail-row .value{color:#e0e0e0}
+.run-result{background:#252525;border:1px solid #444;border-radius:4px;padding:8px 12px;margin-bottom:6px;font-size:12px;font-family:monospace;display:flex;gap:8px;align-items:center}
+.run-result .file{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.loading-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(18,18,18,.7);display:flex;align-items:center;justify-content:center;z-index:200;transition:opacity .2s}
+.loading-overlay.hidden{opacity:0;pointer-events:none}
+.spinner{width:36px;height:36px;border:3px solid #333;border-top-color:#4c9aff;border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.btn.loading{opacity:.7;pointer-events:none;position:relative}
+.btn.loading::after{content:'';display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;margin-left:6px;vertical-align:middle}
 </style>
 </head>
 <body>
-<div class="container">
-<h1>Media Convert for Jellyfin</h1>
-<div id="config-warning" class="warning hidden">config.yml not found. Create one with <code>python src/setup.py</code>.</div>
-
-<div class="card">
-  <h2>Mode</h2>
-  <div class="tabs" id="mode-tabs">
-    <div class="tab active" data-mode="direct">Direct Path</div>
-    <div class="tab" data-mode="all">All Libraries</div>
-    <div class="tab" data-mode="library">Single Library</div>
-    <div class="tab" data-mode="jellyfin_recent">Jellyfin Recent</div>
-    <div class="tab" data-mode="remote">Remote</div>
-  </div>
-
-  <div id="tab-direct" class="tab-content active">
-    <div class="row" style="margin-top:12px">
-      <div class="col" style="flex:1">
-        <label for="directory">Directory path</label>
-        <input type="text" id="directory" placeholder="/path/to/media" style="width:100%">
-      </div>
-    </div>
-    <div class="row" style="margin-top:8px">
-      <div class="col" style="flex:1">
-        <label for="profile">Profile (optional — pre-fills flags)</label>
-        <select id="profile" style="width:100%">
-          <option value="">— None —</option>
-        </select>
-      </div>
-    </div>
-    <div id="profile-info" class="profile-info hidden"></div>
-  </div>
-
-  <div id="tab-library" class="tab-content">
-    <div class="row" style="margin-top:12px">
-      <div class="col" style="flex:1">
-        <label for="library-select">Library</label>
-        <select id="library-select" style="width:100%">
-          <option value="">— Select —</option>
-        </select>
+<div class="app">
+  <div class="sidebar">
+    <h1>Media Convert</h1>
+    <ul class="nav">
+      <li class="active" data-page="dashboard"><span>&#9632;</span> Dashboard <span class="badge" id="lib-count">0</span></li>
+      <li data-page="new-library"><span>+</span> New Library</li>
+      <li data-page="runs"><span>&#9776;</span> Run History <span class="badge" id="run-count">0</span></li>
+      <li data-page="settings"><span>&#9881;</span> Settings</li>
+    </ul>
+    <div style="margin-top:auto;padding:12px 16px;border-top:1px solid #333;font-size:11px;color:#666">
+      <div class="flex items-center gap-4">
+        <span class="dot idle" id="status-dot"></span>
+        <span id="status-text">Idle</span>
       </div>
     </div>
   </div>
 
-  <div id="tab-jellyfin_recent" class="tab-content">
-    <div class="row" style="margin-top:12px">
-      <div class="col" style="flex:1">
-        <label for="jf-libraries">Libraries (comma-separated)</label>
-        <input type="text" id="jf-libraries" placeholder="Shows,Movies" style="width:100%">
-      </div>
-      <div class="col">
-        <label for="jf-since">Since (hours)</label>
-        <input type="number" id="jf-since" value="72" min="1">
-      </div>
+  <div class="loading-overlay hidden" id="page-loader"><div class="spinner"></div></div>
+  <div class="main">
+    <div class="topbar">
+      <h2 id="page-title">Dashboard</h2>
+      <div class="status"><span class="dot idle" id="top-dot"></span><span id="top-status">Idle</span></div>
     </div>
-  </div>
+    <div class="content">
 
-  <div id="tab-remote" class="tab-content">
-    <div class="row" style="margin-top:12px">
-      <div class="col" style="flex:1">
-        <label for="remote-target">Remote target (user@host:/path)</label>
-        <input type="text" id="remote-target" placeholder="user@10.69.1.100:/mnt/media" style="width:100%">
+      <!-- Dashboard -->
+      <div class="page active" id="page-dashboard">
+        <div class="stat-grid mb-8" id="stats-cards"></div>
+        <div class="card">
+          <h3>Libraries</h3>
+          <div id="lib-table"><div class="empty">Loading...</div></div>
+        </div>
       </div>
-      <div class="col">
-        <label for="local-tmp">Local temp dir</label>
-        <input type="text" id="local-tmp" placeholder="/tmp/convert-remote">
+
+      <!-- New/Edit Library -->
+      <div class="page" id="page-new-library">
+        <div class="card">
+          <h3 id="lib-form-title">New Library</h3>
+          <form id="lf-form">
+            <div class="form-row">
+              <div class="field">
+                <label>Library Name</label>
+                <input type="text" id="lf-name" required>
+              </div>
+              <div class="field">
+                <label>Encoder</label>
+                <select id="lf-encoder">
+                  <option value="nvidia">NVIDIA (NVENC)</option>
+                  <option value="intel">Intel (QSV)</option>
+                  <option value="vaapi">VAAPI</option>
+                  <option value="amdgpu">AMD (AMF)</option>
+                  <option value="cpu">CPU (libx264)</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field">
+                <label>Target bitrate (kbps)</label>
+                <input type="number" id="lf-target-br" placeholder="3000">
+              </div>
+              <div class="field">
+                <label>Max bitrate (kbps)</label>
+                <input type="number" id="lf-max-br" placeholder="4500">
+              </div>
+              <div class="field">
+                <label>Min savings %</label>
+                <input type="number" id="lf-min-savings" value="10" min="0">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field">
+                <label>Keep audio languages (comma-sep)</label>
+                <input type="text" id="lf-audio-langs" value="eng,en,jpn,ja,hin,hi">
+              </div>
+              <div class="field">
+                <label>Keep subtitle languages</label>
+                <input type="text" id="lf-sub-langs" value="eng,en,jpn,ja">
+              </div>
+              <div class="field checkbox">
+                <input type="checkbox" id="lf-keep-subs" checked>
+                <label for="lf-keep-subs">Keep subtitles</label>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field" style="flex:2">
+                <label>Media folders</label>
+                <div class="path-list" id="lf-paths"></div>
+                <div class="flex gap-8 mt-8">
+                  <input type="text" id="lf-new-path" placeholder="/path/to/media" style="flex:1;font-size:13px;padding:7px 10px;border:1px solid #444;border-radius:4px;background:#2a2a2a;color:#e0e0e0;outline:none">
+                  <button type="button" class="btn outline" id="lf-add-path">Add</button>
+                </div>
+              </div>
+            </div>
+            <div class="flex gap-8 mt-8">
+              <button type="submit" class="btn primary" id="lf-submit">Create Library</button>
+              <button type="button" class="btn outline" id="lf-cancel">Cancel</button>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
-  </div>
 
-  <div id="tab-all" class="tab-content">
-    <p style="color:#999;margin-top:8px">Scans all libraries defined in config.yml.</p>
-  </div>
-</div>
+      <!-- Run History -->
+      <div class="page" id="page-runs">
+        <div class="card">
+          <h3>All Runs</h3>
+          <div id="runs-table"><div class="empty">Loading...</div></div>
+        </div>
+      </div>
 
-<div class="card" id="flags-card">
-  <h2>Flags</h2>
-  <div class="flag-grid">
-    <div class="flag-item">
-      <label for="flag-use">Encoder</label>
-      <select id="flag-use">
-        <option value="nvidia">NVIDIA (NVENC)</option>
-        <option value="intel">Intel (QSV/VAAPI)</option>
-        <option value="amdgpu">AMD (AMF)</option>
-        <option value="cpu">CPU (libx264)</option>
-        <option value="vaapi">VAAPI</option>
-      </select>
-    </div>
-    <div class="flag-item">
-      <label for="flag-bitrate">Bitrate (kbps, override)</label>
-      <input type="number" id="flag-bitrate" placeholder="3000">
-    </div>
-    <div class="flag-item">
-      <label for="flag-crf">CRF value (override)</label>
-      <input type="number" id="flag-crf" placeholder="23" min="0" max="51">
-    </div>
-    <div class="flag-item">
-      <label for="flag-workers">Workers</label>
-      <input type="number" id="flag-workers" value="1" min="1">
-    </div>
-    <div class="flag-item">
-      <label for="flag-min-savings">Min savings %</label>
-      <input type="number" id="flag-min-savings" value="0" min="0">
-    </div>
-    <div class="flag-item">
-      <label for="flag-exclude">Exclude dirs</label>
-      <input type="text" id="flag-exclude" placeholder=".git,.trickplay">
-    </div>
-    <div class="flag-item">
-      <label for="flag-ignore-path">Ignore path substrings</label>
-      <input type="text" id="flag-ignore-path" placeholder="media1t,backup">
-    </div>
-    <div class="flag-item checkbox">
-      <input type="checkbox" id="flag-verbose">
-      <label for="flag-verbose">Verbose</label>
-    </div>
-    <div class="flag-item checkbox">
-      <input type="checkbox" id="flag-dry-run">
-      <label for="flag-dry-run">Dry run</label>
-    </div>
-    <div class="flag-item checkbox">
-      <input type="checkbox" id="flag-no-backup">
-      <label for="flag-no-backup">No backup original</label>
-    </div>
-    <div class="flag-item checkbox">
-      <input type="checkbox" id="flag-cleanup-tmp">
-      <label for="flag-cleanup-tmp">Cleanup temp files</label>
-    </div>
-  </div>
-</div>
+      <!-- Library Detail -->
+      <div class="page" id="page-library-detail">
+        <div class="flex items-center gap-8 mb-8">
+          <button class="btn outline sm" id="ld-back">&#8592; Back</button>
+          <h3 id="ld-title" style="flex:1">Library</h3>
+          <button class="btn primary sm" id="ld-run">&#9654; Run Now</button>
+          <button class="btn outline sm" id="ld-edit">Edit</button>
+          <button class="btn danger sm" id="ld-delete">Delete</button>
+        </div>
+        <div class="card" id="ld-info"></div>
+        <div class="card">
+          <h3>Run History</h3>
+          <div id="ld-runs"><div class="empty">No runs yet.</div></div>
+        </div>
+      </div>
 
-<div class="card">
-  <div class="ctrl-row">
-    <button class="primary" id="btn-run">&#9654; Run</button>
-    <button class="danger" id="btn-stop" disabled>&#9632; Stop</button>
-    <span style="color:#999;font-size:12px;margin-left:auto" id="run-id-display"></span>
-  </div>
-  <div style="margin-top:8px">
-    <pre id="terminal">Loading configuration…</pre>
-    <div class="status-bar">
-      <span class="dot idle" id="status-dot"></span>
-      <span id="status-text">Idle</span>
-      <span id="status-timer" style="margin-left:auto;color:#666"></span>
+      <!-- Run Detail -->
+      <div class="page" id="page-run-detail">
+        <div class="flex items-center gap-8 mb-8">
+          <button class="btn outline sm" id="rd-back">&#8592; Back</button>
+          <h3 id="rd-title" style="flex:1">Run Detail</h3>
+        </div>
+        <div class="card" id="rd-info"></div>
+        <div class="card">
+          <h3>Results</h3>
+          <div id="rd-results"></div>
+        </div>
+        <div class="card">
+          <h3>Terminal Output</h3>
+          <div class="run-terminal" id="rd-output" style="height:200px"></div>
+        </div>
+      </div>
+
+      <!-- Live Run -->
+      <div class="page" id="page-live-run">
+        <div class="flex items-center gap-8 mb-8">
+          <h3 style="flex:1" id="lr-title">Running...</h3>
+          <button class="btn danger sm" id="lr-stop">&#9632; Stop</button>
+        </div>
+        <div class="run-terminal" id="lr-terminal">Starting...</div>
+      </div>
+
+      <!-- Settings -->
+      <div class="page" id="page-settings">
+        <div class="card">
+          <h3>Environment Variables</h3>
+          <form id="env-form">
+            <div class="form-row">
+              <div class="field"><label>TARGET_BR</label><input type="number" id="env-target-br"></div>
+              <div class="field"><label>MAX_BR</label><input type="number" id="env-max-br"></div>
+              <div class="field"><label>DEFAULT_CRF</label><input type="number" id="env-default-crf"></div>
+            </div>
+            <div class="form-row">
+              <div class="field"><label>JELLYFIN_BASE_URL</label><input type="text" id="env-jf-url"></div>
+              <div class="field"><label>JELLYFIN_API_KEY</label><input type="password" id="env-jf-key"></div>
+            </div>
+            <button type="submit" class="btn primary">Save Settings</button>
+          </form>
+        </div>
+      </div>
+
     </div>
   </div>
-</div>
 </div>
 
 <script>
 const BASE = '';
-let configData = null;
+let currentLib = null;
+let editLibName = null;
 let currentRunId = null;
 let ws = null;
 let statusTimer = null;
 let startTime = null;
-let paused = false;
-let userScrolled = false;
 
-const terminal = document.getElementById('terminal');
-const btnRun = document.getElementById('btn-run');
-const btnStop = document.getElementById('btn-stop');
-const statusDot = document.getElementById('status-dot');
-const statusText = document.getElementById('status-text');
-const statusTimerEl = document.getElementById('status-timer');
-const runIdDisplay = document.getElementById('run-id-display');
+// ── Navigation ─────────────────────────────────────────────────────────────
 
-terminal.addEventListener('scroll', () => {
-  const atBottom = terminal.scrollHeight - terminal.scrollTop < 50;
-  userScrolled = !atBottom;
-});
+function navTo(name, param) {
+  document.querySelectorAll('.nav li').forEach(e => e.classList.remove('active'));
+  const navItem = document.querySelector(`[data-page="${name}"]`);
+  if (navItem) navItem.classList.add('active');
 
-function log(data) {
-  terminal.textContent += data + '\n';
-  if (!userScrolled) terminal.scrollTop = terminal.scrollHeight;
+  const hash = param ? name + '=' + encodeURIComponent(param) : name;
+  history.pushState(null, '', '#' + hash);
+
+  showPage(name);
+  return param;
 }
 
-function setStatus(state, extra) {
-  statusDot.className = 'dot ' + state;
-  if (state === 'running') {
-    statusText.textContent = 'RUNNING' + (extra ? ' ' + extra : '');
-  } else if (state === 'exited') {
-    statusText.textContent = 'EXITED code ' + extra;
-  } else if (state === 'stopped') {
-    statusText.textContent = 'STOPPED code -15';
-  } else {
-    statusText.textContent = 'Idle';
-  }
-}
-
-function escapeHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-function buildFlags() {
-  const f = {};
-  const use = document.getElementById('flag-use').value;
-  if (use) f.use = use;
-  const br = document.getElementById('flag-bitrate').value;
-  if (br) f.bitrate = parseInt(br);
-  const crf = document.getElementById('flag-crf').value;
-  if (crf !== '') f.crf = parseInt(crf);
-  const w = document.getElementById('flag-workers').value;
-  if (w) f.workers = parseInt(w);
-  const ms = document.getElementById('flag-min-savings').value;
-  if (ms) f.min_savings = parseInt(ms);
-  const excl = document.getElementById('flag-exclude').value;
-  if (excl) f.exclude = excl;
-  const ig = document.getElementById('flag-ignore-path').value;
-  if (ig) f.ignore_path = ig.split(',').map(s => s.trim()).filter(Boolean);
-  if (document.getElementById('flag-verbose').checked) f.verbose = true;
-  if (document.getElementById('flag-dry-run').checked) f.dry_run = true;
-  if (document.getElementById('flag-no-backup').checked) f.keep_original = true;
-  if (document.getElementById('flag-cleanup-tmp').checked) f.cleanup_tmp = true;
-  return f;
-}
-
-function getMode() {
-  return document.querySelector('#mode-tabs .tab.active').dataset.mode;
-}
-
-function buildRequest() {
-  const mode = getMode();
-  const r = { mode, flags: buildFlags() };
-  if (mode === 'direct') {
-    r.directory = document.getElementById('directory').value;
-    const profile = document.getElementById('profile').value;
-    if (profile) r.profile = profile;
-  } else if (mode === 'library') {
-    r.library = document.getElementById('library-select').value;
-  } else if (mode === 'jellyfin_recent') {
-    r.library = document.getElementById('jf-libraries').value;
-    r.flags.since_hours = parseInt(document.getElementById('jf-since').value) || 72;
-    r.flags.libraries = document.getElementById('jf-libraries').value;
-  } else if (mode === 'remote') {
-    r.directory = document.getElementById('remote-target').value;
-    r.flags.remote = document.getElementById('remote-target').value;
-    const lt = document.getElementById('local-tmp').value;
-    if (lt) r.flags.local_tmp = lt;
-  }
-  return r;
-}
-
-function fillProfileInfo(profileName) {
-  const info = document.getElementById('profile-info');
-  if (!profileName || !configData || !configData.profiles || !configData.profiles[profileName]) {
-    info.classList.add('hidden');
-    return;
-  }
-  const p = configData.profiles[profileName];
-  let html = '<strong>' + escapeHtml(profileName) + '</strong> — ';
-  html += 'encoder: <strong>' + escapeHtml(p.encoder || 'nvidia') + '</strong>, ';
-  html += 'target: <strong>' + (p.target_bitrate || '?') + 'k</strong>, ';
-  html += 'max: <strong>' + (p.max_bitrate || '?') + 'k</strong>, ';
-  html += 'tolerance: <strong>' + (p.tolerance || '?') + 'k</strong>';
-  if (p.minimum_savings_percent) {
-    html += ', min savings: <strong>' + p.minimum_savings_percent + '%</strong>';
-  }
-  info.innerHTML = html;
-  info.classList.remove('hidden');
-}
-
-function applyProfile(profileName) {
-  if (!profileName || !configData || !configData.profiles || !configData.profiles[profileName]) return;
-  const p = configData.profiles[profileName];
-  if (p.encoder) {
-    document.getElementById('flag-use').value = p.encoder;
-  }
-  if (p.target_bitrate) {
-    document.getElementById('flag-bitrate').value = p.target_bitrate;
-  }
-  if (p.minimum_savings_percent) {
-    document.getElementById('flag-min-savings').value = p.minimum_savings_percent;
-  }
-  fillProfileInfo(profileName);
-}
-
-function clearProfileInfo() {
-  document.getElementById('profile-info').classList.add('hidden');
-}
-
-document.getElementById('profile').addEventListener('change', function() {
-  if (this.value) {
-    applyProfile(this.value);
-  } else {
-    clearProfileInfo();
-  }
-});
-
-async function loadConfig() {
-  try {
-    const res = await fetch(BASE + '/api/config');
-    configData = await res.json();
-    if (!configData.config_found) {
-      document.getElementById('config-warning').classList.remove('hidden');
-      return;
-    }
-    document.getElementById('config-warning').classList.add('hidden');
-
-    const profileSelect = document.getElementById('profile');
-    if (configData.profiles) {
-      profileSelect.innerHTML = '<option value="">— None —</option>';
-      for (const [name, _] of Object.entries(configData.profiles)) {
-        const opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = name;
-        profileSelect.appendChild(opt);
-      }
-    }
-
-    const libSelect = document.getElementById('library-select');
-    if (configData.libraries) {
-      libSelect.innerHTML = '<option value="">— Select —</option>';
-      for (const lib of configData.libraries) {
-        const opt = document.createElement('option');
-        opt.value = lib.name;
-        opt.textContent = lib.name + (lib.profile ? ' (' + lib.profile + ')' : '');
-        libSelect.appendChild(opt);
-      }
-    }
-
-    log('Config loaded: ' + (configData.libraries ? configData.libraries.length + ' libraries, ' : '') + 
-        (configData.profiles ? Object.keys(configData.profiles).length + ' profiles' : ''));
-  } catch (e) {
-    log('Failed to load config: ' + e.message);
-  }
-}
-
-async function startRun() {
-  if (currentRunId) return;
-  const req = buildRequest();
-  if (getMode() === 'direct' && !req.directory) {
-    alert('Please enter a directory path');
-    return;
-  }
-  if (getMode() === 'library' && !req.library) {
-    alert('Please select a library');
-    return;
-  }
-  if (getMode() === 'jellyfin_recent' && !req.library) {
-    alert('Please enter library names');
-    return;
-  }
-  if (getMode() === 'remote' && !req.directory) {
-    alert('Please enter a remote target');
-    return;
-  }
-
-  terminal.textContent = '';
-  userScrolled = false;
-
-  try {
-    const res = await fetch(BASE + '/api/run', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(req),
-    });
-    const data = await res.json();
-    if (data.error) {
-      log('ERROR: ' + data.error);
-      return;
-    }
-    currentRunId = data.run_id;
-    runIdDisplay.textContent = 'Run: ' + currentRunId.substring(0, 8) + '…';
-    log('$ ' + data.command);
-    btnRun.disabled = true;
-    btnStop.disabled = false;
-    setStatus('running');
-    startTime = Date.now();
-    statusTimer = setInterval(updateTimer, 1000);
-    connectWs(currentRunId);
-  } catch (e) {
-    log('ERROR: ' + e.message);
-  }
-}
-
-function updateTimer() {
-  if (!startTime) return;
-  const secs = Math.floor((Date.now() - startTime) / 1000);
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-  statusTimerEl.textContent = m + 'm ' + (s < 10 ? '0' : '') + s + 's';
-}
-
-function connectWs(runId) {
-  if (ws) ws.close();
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(proto + '//' + location.host + BASE + '/api/ws/' + runId);
-  ws.onmessage = function(e) {
-    const msg = JSON.parse(e.data);
-    if (msg.type === 'stdout' || msg.type === 'stderr') {
-      log(msg.data);
-    } else if (msg.type === 'exit') {
-      onExit(msg.code);
-    } else if (msg.type === 'error') {
-      log('ERROR: ' + msg.data);
-      onExit(-1);
-    }
-  };
-  ws.onclose = function() {
-    if (currentRunId) {
-      checkStatus(currentRunId);
-    }
-  };
-  ws.onerror = function() {
-    log('WebSocket error');
-  };
-}
-
-function onExit(code) {
-  if (code === 0) {
-    setStatus('exited', 0);
-  } else if (code === -15 || code === -9) {
-    setStatus('stopped');
-  } else {
-    setStatus('exited', code);
-  }
-  cleanupRun();
-}
-
-async function checkStatus(runId) {
-  try {
-    const res = await fetch(BASE + '/api/status/' + runId);
-    const data = await res.json();
-    if (!data.running) {
-      if (data.exit_code === 0) setStatus('exited', 0);
-      else if (data.exit_code !== null) setStatus('exited', data.exit_code);
-      cleanupRun();
-    }
-  } catch (e) {}
-}
-
-function cleanupRun() {
-  currentRunId = null;
-  btnRun.disabled = false;
-  btnStop.disabled = true;
-  if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
-  statusTimerEl.textContent = '';
-  if (ws) { ws.close(); ws = null; }
-}
-
-async function stopRun() {
-  if (!currentRunId) return;
-  try {
-    await fetch(BASE + '/api/stop/' + currentRunId, { method: 'POST' });
-    log('Stop requested');
-  } catch (e) {
-    log('Stop error: ' + e.message);
-  }
-}
-
-btnRun.addEventListener('click', startRun);
-btnStop.addEventListener('click', stopRun);
-
-document.querySelectorAll('#mode-tabs .tab').forEach(tab => {
-  tab.addEventListener('click', function() {
-    document.querySelectorAll('#mode-tabs .tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-    this.classList.add('active');
-    document.getElementById('tab-' + this.dataset.mode).classList.add('active');
+document.querySelectorAll('.nav li').forEach(el => {
+  el.addEventListener('click', () => {
+    if (el.dataset.page === 'new-library') return;
+    navTo(el.dataset.page);
   });
 });
 
-loadConfig();
-log('Ready. Select a mode and click Run.');
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const page = document.getElementById('page-' + name);
+  if (page) page.classList.add('active');
+  document.getElementById('page-title').textContent = pageTitle(name);
+  if (name === 'dashboard') loadDashboard();
+  if (name === 'runs') loadRuns();
+  if (name === 'settings') loadEnv();
+  if (name === 'new-library' && editLibName) {
+    document.getElementById('page-title').textContent = 'Edit Library: ' + editLibName;
+  }
+}
+
+function pageTitle(name) {
+  const map = {dashboard:'Dashboard', 'new-library':'New Library', runs:'Run History', settings:'Settings',
+    'library-detail':'Library Detail', 'run-detail':'Run Detail', 'live-run':'Live Run'};
+  return map[name] || name;
+}
+
+// ── API helper ─────────────────────────────────────────────────────────────
+
+async function api(method, path, body) {
+  const opts = {method, headers:{}};
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  const r = await fetch(BASE + path, opts);
+  if (method === 'DELETE' || method === 'PUT') return r.json();
+  return r.json();
+}
+
+function setLoading(el, loading) {
+  if (typeof el === 'string') el = document.getElementById(el);
+  if (!el) return;
+  if (loading) { el.classList.add('loading'); el.disabled = true; }
+  else { el.classList.remove('loading'); el.disabled = false; }
+}
+
+function showPageLoader() { document.getElementById('page-loader').classList.remove('hidden'); }
+function hidePageLoader() { document.getElementById('page-loader').classList.add('hidden'); }
+
+async function withPageLoader(fn) {
+  showPageLoader();
+  try { return await fn(); }
+  finally { hidePageLoader(); }
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────────────
+
+async function loadDashboard() {
+  showPageLoader();
+  const [libsRes, statsRes] = await Promise.all([
+    api('GET', '/api/libraries'),
+    api('GET', '/api/stats'),
+  ]);
+  hidePageLoader();
+
+  const libs = libsRes.libraries || [];
+  const stats = statsRes;
+
+  document.getElementById('run-count').textContent = stats.total_runs || 0;
+  document.getElementById('lib-count').textContent = libs.length;
+
+  // Stats cards
+  const savedGb = (stats.total_saved_mb / 1024).toFixed(2);
+  document.getElementById('stats-cards').innerHTML = `
+    <div class="stat-card accent-blue"><div class="icon">&#9654;</div><div class="value">${stats.total_runs}</div><div class="label">Total Runs</div></div>
+    <div class="stat-card accent-orange"><div class="icon">&#128218;</div><div class="value">${libs.length}</div><div class="label">Libraries</div></div>
+    <div class="stat-card accent-green"><div class="icon">&#10003;</div><div class="value">${stats.total_ok}</div><div class="label">Files Converted</div></div>
+    <div class="stat-card accent-purple"><div class="icon">&#128190;</div><div class="value">${savedGb} GB</div><div class="label">Space Saved</div></div>
+  `;
+
+  if (!libs.length) {
+    document.getElementById('lib-table').innerHTML = '<div class="empty">No libraries configured. <a href="#" onclick="navTo(\'new-library\');return false">Create one</a>.</div>';
+    return;
+  }
+
+  function relTime(ts) {
+    if (!ts) return 'Never';
+    const sec = Math.floor((Date.now() / 1000 - ts));
+    if (sec < 60) return 'just now';
+    if (sec < 3600) return Math.floor(sec / 60) + 'm ago';
+    if (sec < 86400) return Math.floor(sec / 3600) + 'h ago';
+    return Math.floor(sec / 86400) + 'd ago';
+  }
+
+  function encTag(enc) {
+    const e = enc || 'nvidia';
+    const cls = e === 'cpu' ? 'tag ok' : 'tag skip';
+    return `<span class="${cls}">${e}</span>`;
+  }
+
+  let html = '<div class="action-bar"><button class="btn outline sm" onclick="navTo(\'new-library\')">+ New Library</button>';
+  html += '<button class="btn primary sm" onclick="runAll()">&#9654; Run All</button></div>';
+  html += '<table><thead><tr><th>Name</th><th>Folders</th><th>Encoder</th><th>Bitrate</th><th>Last Run</th><th>Saved</th><th></th></tr></thead><tbody>';
+  for (const lib of libs) {
+    const p = lib.profile || {};
+    const lastRun = lib.last_run ? relTime(lib.last_run) : 'Never';
+    const saved = lib.total_saved_mb > 0 ? (lib.total_saved_mb / 1024).toFixed(2) + ' GB' : '-';
+    const paths = (lib.paths || []);
+    const pathStr = paths.length === 0 ? '<span class="text-muted">none</span>' : `<span class="lib-path-count" title="${esc(paths.join('\n'))}">${paths.length} folder${paths.length > 1 ? 's' : ''}</span>`;
+    html += `<tr>
+      <td><strong>${esc(lib.name)}</strong></td>
+      <td>${pathStr}</td>
+      <td>${encTag(p.encoder)}</td>
+      <td>${p.target_bitrate || '—'}k</td>
+      <td><span class="text-muted">${lastRun}</span></td>
+      <td>${saved}</td>
+      <td>
+        <button class="btn outline sm" onclick="viewLibrary('${esc(lib.name)}')">View</button>
+        <button class="btn primary sm" onclick="runLibrary('${esc(lib.name)}')">&#9654;</button>
+      </td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  document.getElementById('lib-table').innerHTML = html;
+}
+
+// ── Library Form ───────────────────────────────────────────────────────────
+
+let lfPaths = [];
+
+function renderPaths() {
+  const el = document.getElementById('lf-paths');
+  el.innerHTML = lfPaths.map((p, i) => {
+    const status = p._valid ? '&#10003;' : '&#10007;';
+    const cls = p._valid ? 'check' : 'cross';
+    return `<div class="path-item"><span class="${cls}">${status}</span> ${esc(p.path)} <span class="remove" onclick="removePath(${i})">&#10005;</span></div>`;
+  }).join('');
+}
+
+function removePath(i) { lfPaths.splice(i, 1); renderPaths(); }
+
+document.getElementById('lf-add-path').addEventListener('click', async () => {
+  const input = document.getElementById('lf-new-path');
+  const path = input.value.trim();
+  if (!path) return;
+  const res = await api('GET', '/api/validate-path?path=' + encodeURIComponent(path));
+  lfPaths.push({path, _valid: res.valid});
+  renderPaths();
+  input.value = '';
+});
+
+document.getElementById('lf-cancel').addEventListener('click', () => {
+  editLibName = null;
+  navTo('dashboard');
+});
+
+document.getElementById('lf-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('lf-submit');
+  setLoading(btn, true);
+  const body = {
+    name: document.getElementById('lf-name').value.trim(),
+    encoder: document.getElementById('lf-encoder').value,
+    target_bitrate: parseInt(document.getElementById('lf-target-br').value) || undefined,
+    max_bitrate: parseInt(document.getElementById('lf-max-br').value) || undefined,
+    minimum_savings_percent: parseInt(document.getElementById('lf-min-savings').value) || 0,
+    keep_audio_langs: document.getElementById('lf-audio-langs').value.split(',').map(s => s.trim()).filter(Boolean),
+    keep_subtitle_langs: document.getElementById('lf-sub-langs').value.split(',').map(s => s.trim()).filter(Boolean),
+    keep_subtitles: document.getElementById('lf-keep-subs').checked,
+    paths: lfPaths.map(p => p.path),
+  };
+  if (!body.name) return;
+  if (lfPaths.length === 0) { alert('Add at least one media folder path.'); return; }
+  const invalid = lfPaths.filter(p => !p._valid);
+  if (invalid.length) { alert('Remove or fix invalid paths before saving:\n' + invalid.map(p => '  ' + p.path).join('\n')); return; }
+
+  let res;
+  if (editLibName) {
+    res = await api('PUT', '/api/libraries/' + encodeURIComponent(editLibName), body);
+  } else {
+    res = await api('POST', '/api/libraries', body);
+  }
+  setLoading(btn, false);
+  if (res.error) { alert(res.error); return; }
+  const savedName = body.name || editLibName;
+  editLibName = null;
+  navTo('library-detail', savedName);
+});
+
+function openNewLibrary() {
+  editLibName = null;
+  document.getElementById('lib-form-title').textContent = 'New Library';
+  document.getElementById('lf-submit').textContent = 'Create Library';
+  document.getElementById('lf-name').value = '';
+  document.getElementById('lf-encoder').value = 'nvidia';
+  document.getElementById('lf-target-br').value = '';
+  document.getElementById('lf-max-br').value = '';
+  document.getElementById('lf-min-savings').value = '10';
+  document.getElementById('lf-audio-langs').value = 'eng,en,jpn,ja,hin,hi';
+  document.getElementById('lf-sub-langs').value = 'eng,en,jpn,ja';
+  document.getElementById('lf-keep-subs').checked = true;
+  lfPaths = [];
+  renderPaths();
+  navTo('new-library');
+}
+
+document.querySelector('[data-page="new-library"]').addEventListener('click', openNewLibrary);
+
+function openEditLibrary(name) {
+  api('GET', '/api/libraries/' + encodeURIComponent(name)).then(data => {
+    if (data.error) { alert(data.error); return; }
+    editLibName = name;
+    document.getElementById('lib-form-title').textContent = 'Edit Library: ' + name;
+    document.getElementById('lf-submit').textContent = 'Save Changes';
+    const p = data.profile || {};
+    document.getElementById('lf-name').value = name;
+    document.getElementById('lf-encoder').value = p.encoder || 'nvidia';
+    document.getElementById('lf-target-br').value = p.target_bitrate || '';
+    document.getElementById('lf-max-br').value = p.max_bitrate || '';
+    document.getElementById('lf-min-savings').value = p.minimum_savings_percent || '10';
+    document.getElementById('lf-audio-langs').value = (p.keep_audio_langs || []).join(',') || 'eng,en,jpn,ja,hin,hi';
+    document.getElementById('lf-sub-langs').value = (p.keep_subtitle_langs || []).join(',') || '';
+    document.getElementById('lf-keep-subs').checked = p.keep_subtitles !== false;
+    lfPaths = (data.paths || []).map(p => ({path: p, _valid: true}));
+    renderPaths();
+    history.pushState(null, '', '#edit-library=' + encodeURIComponent(name));
+    showPage('new-library');
+  });
+}
+
+// ── Library Detail ─────────────────────────────────────────────────────────
+
+function viewLibrary(name) {
+  currentLib = name;
+  navTo('library-detail', name);
+  api('GET', '/api/libraries/' + encodeURIComponent(name)).then(data => {
+    if (data.error) { alert(data.error); return; }
+    document.getElementById('ld-title').textContent = name;
+    const p = data.profile || {};
+    document.getElementById('ld-info').innerHTML = `
+      <div class="detail-row"><span class="label">Encoder</span><span class="value">${p.encoder || 'nvidia'}</span></div>
+      <div class="detail-row"><span class="label">Target bitrate</span><span class="value">${p.target_bitrate || '—'} kbps</span></div>
+      <div class="detail-row"><span class="label">Max bitrate</span><span class="value">${p.max_bitrate || '—'} kbps</span></div>
+      <div class="detail-row"><span class="label">Min savings</span><span class="value">${p.minimum_savings_percent || 0}%</span></div>
+      <div class="detail-row"><span class="label">Audio langs</span><span class="value">${(p.keep_audio_langs || []).join(', ') || '—'}</span></div>
+      <div class="detail-row"><span class="label">Folders</span><span class="value">${(data.paths || []).join('<br>') || '—'}</span></div>
+    `;
+
+    const runs = data.runs || [];
+    if (!runs.length) {
+      document.getElementById('ld-runs').innerHTML = '<div class="empty">No runs yet.</div>';
+    } else {
+      let html = '<table><thead><tr><th>Date</th><th>OK</th><th>Skip</th><th>Fail</th><th>Saved</th><th>Status</th><th></th></tr></thead><tbody>';
+      for (const r of runs) {
+        const s = r.summary || {};
+        const date = r.ended_at ? new Date(r.ended_at * 1000).toLocaleString() : '—';
+        const saved = s.space_saved_mb > 0 ? (s.space_saved_mb / 1024).toFixed(2) + ' GB' : '—';
+        const status = r.exit_code === 0 ? '<span class="tag ok">OK</span>' : '<span class="tag fail">FAIL</span>';
+        html += `<tr><td>${date}</td><td>${s.ok || 0}</td><td>${s.skip || 0}</td><td>${s.fail || 0}</td><td>${saved}</td><td>${status}</td>
+          <td><button class="btn outline sm" onclick="viewRun('${r.run_id}')">View</button></td></tr>`;
+      }
+      html += '</tbody></table>';
+      document.getElementById('ld-runs').innerHTML = html;
+    }
+  });
+}
+
+document.getElementById('ld-back').addEventListener('click', () => navTo('dashboard'));
+document.getElementById('ld-edit').addEventListener('click', () => openEditLibrary(currentLib));
+document.getElementById('ld-delete').addEventListener('click', async () => {
+  if (!confirm('Delete library "' + currentLib + '"?')) return;
+  const btn = document.getElementById('ld-delete');
+  setLoading(btn, true);
+  await api('DELETE', '/api/libraries/' + encodeURIComponent(currentLib));
+  setLoading(btn, false);
+  navTo('dashboard');
+});
+document.getElementById('ld-run').addEventListener('click', () => runLibrary(currentLib));
+
+// ── Run ────────────────────────────────────────────────────────────────────
+
+async function runAll() {
+  const status = await api('GET', '/api/status');
+  if (status.running) { alert('A run is already in progress'); return; }
+  showPageLoader();
+  const data = await api('POST', '/api/run', {mode:'all', flags:{}});
+  hidePageLoader();
+  if (data.error) { alert(data.error); return; }
+  startLiveRun(data.run_id, 'Running all libraries');
+}
+
+async function runLibrary(name) {
+  const status = await api('GET', '/api/status');
+  if (status.running) {
+    alert('A run is already in progress');
+    return;
+  }
+  showPageLoader();
+  const data = await api('POST', '/api/run', {mode:'library', library:name, flags:{}});
+  hidePageLoader();
+  if (data.error) { alert(data.error); return; }
+  startLiveRun(data.run_id, 'Running library: ' + name);
+}
+
+async function startLiveRun(runId, title) {
+  currentRunId = runId;
+  document.getElementById('lr-title').textContent = title;
+  document.getElementById('lr-terminal').textContent = 'Connecting...';
+  navTo('live-run');
+
+  const terminal = document.getElementById('lr-terminal');
+  let logBuffer = '';
+
+  function log(text) {
+    logBuffer += text + '\n';
+    terminal.textContent = logBuffer;
+    terminal.scrollTop = terminal.scrollHeight;
+  }
+
+  const buf = await api('GET', '/api/status/' + runId);
+  if (buf && buf.output) {
+    logBuffer = buf.output.map(o => o.data).join('\n');
+    terminal.textContent = logBuffer;
+    terminal.scrollTop = terminal.scrollHeight;
+  }
+
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + BASE + '/api/ws/' + runId);
+
+  ws.onmessage = function(e) {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'stdout' || msg.type === 'stderr') {
+      if (msg.data.trim().startsWith('{')) return;
+      log(msg.data);
+    } else if (msg.type === 'exit') {
+      log('--- Process exited with code ' + msg.code + ' ---');
+      updateStatus(msg.code === 0 ? 'idle' : 'stopped');
+      setTimeout(() => { if (ws) { ws.close(); ws = null; } }, 500);
+      currentRunId = null;
+    }
+  };
+
+  ws.onerror = function() { log('WebSocket error'); };
+  ws.onclose = function() { log('Connection closed'); };
+
+  const poll = setInterval(async () => {
+    const st = await api('GET', '/api/status/' + runId);
+    if (!st.running) {
+      clearInterval(poll);
+      log('--- Run completed (exit: ' + st.exit_code + ') ---');
+      updateStatus('idle');
+      if (currentRunId === runId) currentRunId = null;
+    }
+  }, 2000);
+}
+
+document.getElementById('lr-stop').addEventListener('click', async () => {
+  if (!currentRunId) return;
+  const res = await api('POST', '/api/stop/' + currentRunId);
+  if (res.stopped) {
+    document.getElementById('lr-terminal').textContent += '\n--- Stop requested ---\n';
+  }
+});
+
+// ── Run Detail ─────────────────────────────────────────────────────────────
+
+function viewRun(runId) {
+  navTo('run-detail', runId);
+  api('GET', '/api/runs/' + runId).then(data => {
+    if (data.error) { alert(data.error); return; }
+    document.getElementById('rd-title').textContent = 'Run ' + runId.substring(0, 8);
+    const s = data.summary || {};
+    const date = data.ended_at ? new Date(data.ended_at * 1000).toLocaleString() : '—';
+    const saved = s.space_saved_mb > 0 ? (s.space_saved_mb / 1024).toFixed(2) + ' GB' : '—';
+
+    document.getElementById('rd-info').innerHTML = `
+      <div class="detail-row"><span class="label">Library</span><span class="value">${data.library || '—'}</span></div>
+      <div class="detail-row"><span class="label">Started</span><span class="value">${data.started_at ? new Date(data.started_at * 1000).toLocaleString() : '—'}</span></div>
+      <div class="detail-row"><span class="label">Ended</span><span class="value">${date}</span></div>
+      <div class="detail-row"><span class="label">Exit code</span><span class="value">${data.exit_code}</span></div>
+      <div class="detail-row"><span class="label">OK/Skip/Fail</span><span class="value">${s.ok || 0} / ${s.skip || 0} / ${s.fail || 0}</span></div>
+      <div class="detail-row"><span class="label">Space saved</span><span class="value">${saved}</span></div>
+      <div class="detail-row"><span class="label">Files total</span><span class="value">${s.files_total || 0}</span></div>
+    `;
+
+    const results = data.results || [];
+    if (!results.length) {
+      document.getElementById('rd-results').innerHTML = '<div class="empty">No per-file results recorded.</div>';
+    } else {
+      let html = '';
+      for (const r of results) {
+        const tag = r.status === 'OK' ? 'ok' : r.status === 'SKIP' ? 'skip' : 'fail';
+        const saved2 = r.before && r.after ? ' (' + ((r.before - r.after) / (1024*1024)).toFixed(1) + ' MB saved)' : '';
+        html += `<div class="run-result">
+          <span class="tag ${tag}">${r.status}</span>
+          <span class="file">${esc(r.file || '')}</span>
+          <span class="text-muted">${r.msg || ''}${saved2}</span>
+        </div>`;
+      }
+      document.getElementById('rd-results').innerHTML = html;
+    }
+
+    const output = data.output || [];
+    const outputEl = document.getElementById('rd-output');
+    if (!output.length) {
+      outputEl.textContent = '(no output captured)';
+    } else {
+      outputEl.textContent = output.map(o => o.data).join('\n');
+    }
+  });
+}
+
+document.getElementById('rd-back').addEventListener('click', () => {
+  if (currentLib) viewLibrary(currentLib);
+  else navTo('runs');
+});
+
+// ── Run History ────────────────────────────────────────────────────────────
+
+async function loadRuns() {
+  showPageLoader();
+  const data = await api('GET', '/api/runs');
+  hidePageLoader();
+  const runs = data.runs || [];
+  document.getElementById('run-count').textContent = runs.length;
+
+  if (!runs.length) {
+    document.getElementById('runs-table').innerHTML = '<div class="empty">No runs yet.</div>';
+    return;
+  }
+
+  let html = '<table><thead><tr><th>Date</th><th>Library</th><th>OK</th><th>Skip</th><th>Fail</th><th>Saved</th><th>Status</th><th></th></tr></thead><tbody>';
+  for (const r of runs) {
+    const s = r.summary || {};
+    const date = r.ended_at ? new Date(r.ended_at * 1000).toLocaleString() : '—';
+    const saved2 = s.space_saved_mb > 0 ? (s.space_saved_mb / 1024).toFixed(2) + ' GB' : '—';
+    const status = r.exit_code === 0 ? '<span class="tag ok">OK</span>' : '<span class="tag fail">' + (r.exit_code || '?') + '</span>';
+    html += `<tr><td>${date}</td><td>${esc(r.library || '—')}</td><td>${s.ok || 0}</td><td>${s.skip || 0}</td><td>${s.fail || 0}</td><td>${saved2}</td><td>${status}</td>
+      <td><button class="btn outline sm" onclick="viewRun('${r.run_id}')">View</button></td></tr>`;
+  }
+  html += '</tbody></table>';
+  document.getElementById('runs-table').innerHTML = html;
+}
+
+// ── Settings ───────────────────────────────────────────────────────────────
+
+async function loadEnv() {
+  showPageLoader();
+  const data = await api('GET', '/api/env');
+  hidePageLoader();
+  document.getElementById('env-target-br').value = data.TARGET_BR || '';
+  document.getElementById('env-max-br').value = data.MAX_BR || '';
+  document.getElementById('env-default-crf').value = data.DEFAULT_CRF || '';
+  document.getElementById('env-jf-url').value = data.JELLYFIN_BASE_URL || '';
+}
+
+document.getElementById('env-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = {
+    TARGET_BR: document.getElementById('env-target-br').value,
+    MAX_BR: document.getElementById('env-max-br').value,
+    DEFAULT_CRF: document.getElementById('env-default-crf').value,
+    JELLYFIN_BASE_URL: document.getElementById('env-jf-url').value,
+    JELLYFIN_API_KEY: document.getElementById('env-jf-key').value,
+  };
+  Object.keys(body).forEach(k => { if (!body[k]) delete body[k]; });
+  await api('POST', '/api/env', body);
+  alert('Settings saved.');
+});
+
+// ── Status ─────────────────────────────────────────────────────────────────
+
+function updateStatus(state) {
+  const dots = document.querySelectorAll('.dot');
+  const texts = document.querySelectorAll('#status-text, #top-status');
+  dots.forEach(d => { d.className = 'dot ' + state; });
+  texts.forEach(t => { t.textContent = state === 'running' ? 'Running' : 'Idle'; });
+}
+
+async function pollStatus() {
+  const st = await api('GET', '/api/status');
+  updateStatus(st.running ? 'running' : 'idle');
+  if (!st.running && currentRunId) {
+    currentRunId = null;
+  }
+}
+
+// ── Utils ──────────────────────────────────────────────────────────────────
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+
+function restoreFromHash() {
+  const hash = location.hash.replace(/^#/, '');
+  if (!hash) {
+    loadDashboard();
+    return;
+  }
+  const eq = hash.indexOf('=');
+  if (eq !== -1) {
+    const page = hash.substring(0, eq);
+    const param = decodeURIComponent(hash.substring(eq + 1));
+    if (page === 'library-detail') viewLibrary(param);
+    else if (page === 'run-detail') viewRun(param);
+    else if (page === 'edit-library') openEditLibrary(param);
+    else if (page === 'live-run') {
+      api('GET', '/api/status').then(s => {
+        if (s.running && s.run_id) startLiveRun(s.run_id, 'Running');
+        else navTo('dashboard');
+      });
+    }
+    else navTo(page);
+  } else {
+    if (hash === 'new-library') { openNewLibrary(); return; }
+    navTo(hash);
+  }
+}
+
+window.addEventListener('popstate', restoreFromHash);
+restoreFromHash();
+pollStatus();
+setInterval(pollStatus, 5000);
 </script>
 </body>
 </html>

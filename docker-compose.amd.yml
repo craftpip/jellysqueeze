@@ -1,0 +1,26 @@
+# WIP — AMD GPU compose file
+# Not tested. Uses VA-API via radeonsi driver.
+# Same device mount as Intel, but with LIBVA_DRIVER_NAME=radeonsi.
+
+services:
+  media-convert:
+    build:
+      context: .
+      dockerfile: Dockerfile.amd
+    image: media-convert-for-jellyfin:amd
+    container_name: media-convert-amd
+    restart: unless-stopped
+    ports:
+      - "${WEBUI_PORT:-8080}:8080"
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "109"
+    environment:
+      - LIBVA_DRIVER_NAME=radeonsi
+    env_file:
+      - .env
+    volumes:
+      - "${PWD}/config.yml:/app/config.yml:ro"
+      - "${PWD}/.env:/app/.env"
+      - "${PWD}/var:/app/var"

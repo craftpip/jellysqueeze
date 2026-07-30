@@ -84,66 +84,61 @@ For Intel, `-hwaccel` should change from `vaapi` to `qsv`. For AMD AMF on Linux,
 
 | Area | Status |
 |---|---|
-| CPU Dockerfile + docker-compose.yml | Not started |
-| NVIDIA Dockerfile + docker-compose.nvidia.yml | Not started |
-| Intel QSV Dockerfile + docker-compose.intel.yml | Not started |
-| AMD AMF Dockerfile + docker-compose.amd.yml | Not started |
-| Research AMD ROCm/AMF runtime requirements | Not started |
-| Fix GPU detection for Docker (device checks before encoder checks) | Not started |
-| Fix Intel encoder mapping (vaapi → qsv) | Not started |
+| CPU Dockerfile + docker-compose.yml | Done |
+| NVIDIA Dockerfile + docker-compose.nvidia.yml | Done |
+| Intel QSV Dockerfile + docker-compose.intel.yml | Done |
+| AMD AMF Dockerfile + docker-compose.amd.yml | Done (WIP/untested) |
+| Research AMD ROCm/AMF runtime requirements | Cancelled — `h264_amf` is Windows-only, not in jrottenberg. AMD uses VA-API via `radeonsi` instead |
+| Fix GPU detection for Docker (device checks before encoder checks) | Done — `device_available()` in convert.py checks `nvidia-smi` or `/dev/dri/renderD128` before trusting encoder names |
+| Fix Intel encoder mapping (vaapi → qsv) | Done — `h264_vaapi` → `h264_qsv`, `-hwaccel vaapi` → `-hwaccel qsv`, removed VAAPI device args |
 | .dockerignore | Done |
 | Web UI auto-run on container start | Done |
-| Test build + run (all 4 variants) | Not started |
+| Test build + run (CPU, NVIDIA) | Done — smoke-tested both, confirmed working. Intel untested (no iGPU). AMD WIP |
 | Host prerequisite docs in README | Not started |
 | CI build | Not started |
 
 ## Dockerfile (pattern — one per variant)
 
-Each variant follows the same multi-stage pattern but uses a different jrottenberg ffmpeg image:
+Each variant uses jrottenberg/ffmpeg as the base image and installs Python on top (single-stage). Multi-stage would cause libc conflicts — jrottenberg uses Ubuntu, slim uses Debian.
 
 ```dockerfile
-# Stage 1: ffmpeg with vendor-specific codecs
-FROM jrottenberg/ffmpeg:8.1-{VARIANT} AS ffmpeg
+FROM jrottenberg/ffmpeg:8.1-{VARIANT}
 
-# Stage 2: Python runtime
-FROM python:3.11-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-venv \
+    && rm -rf /var/lib/apt/lists/*
 
-# Vendor-specific runtime libraries go here
-# (varies per GPU — see each variant below)
-
-# Copy ffmpeg/ffprobe
-COPY --from=ffmpeg /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
-COPY --from=ffmpeg /usr/local/bin/ffprobe /usr/local/bin/ffprobe
+RUN python3 -m venv /venv
+ENV PATH="/venv/bin:$PATH"
 
 WORKDIR /app
-
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
+RUN /venv/bin/pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/src
 ENV WEBUI_HOST=0.0.0.0
 ENV WEBUI_PORT=8080
-
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:$WEBUI_PORT/api/config')" \
+  CMD /venv/bin/python -c "import urllib.request; urllib.request.urlopen('http://localhost:$WEBUI_PORT/api/config')" \
   || exit 1
 
-ENTRYPOINT ["python", "-m", "uvicorn", "webui.main:app", "--host", "0.0.0.0", "--port", "8080"]
+ENTRYPOINT ["/venv/bin/python", "-m", "uvicorn", "webui.main:app", "--host", "0.0.0.0", "--port", "8080"]
 ```
 
 ### Variant specifics
 
-| Variant | `{VARIANT}` | Runtime packages to install | Notes |
-|---|---|---|---|
-| CPU | `ubuntu2404` | None | ffmpeg from apt standard build |
-| NVIDIA | `nvidia2404` | None needed | CUDA/NVENC libs come from `runtime: nvidia` at container start |
-| Intel QSV | `vaapi2404` | `libva2 libva-drm2 intel-media-va-driver-non-free` | iHD driver provides QSV via VAAPI |
-| AMD AMF | `amf2404` | **TBD** — needs ROCm/AMF runtime libs | Research: `amf-amdgpu-pro` or rocm-dev runtime packages |
+| Variant | Jrottenberg image | Extra packages | Notes |
+|---|---|---|---|---|
+| CPU | `jrottenberg/ffmpeg:8.1-ubuntu2404` | Python from apt | Ubuntu 24.04 (Python 3.12) |
+| NVIDIA | `jrottenberg/ffmpeg:8.1-nvidia2404` | Python from apt | Needs `runtime: nvidia` at container start |
+| Intel QSV | `jrottenberg/ffmpeg:8.1-vaapi2404` | Python + intel-media-va-driver-non-free, libva2 | iHD driver for QSV, needs `/dev/dri` |
+| AMD (WIP) | `jrottenberg/ffmpeg:8.1-vaapi2404` | Python + mesa-va-drivers, libva2 | Uses VAAPI via radeonsi. `h264_amf` is Windows-only, not in jrottenberg |
 
 ## docker-compose.yml (CPU — default)
 
@@ -164,9 +159,6 @@ services:
       - "${PWD}/config.yml:/app/config.yml:ro"
       - "${PWD}/.env:/app/.env"
       - "${PWD}/var:/app/var"
-      - /mnt/media1t/downloads:/mnt/media1t/downloads
-      - /mnt/media2t/downloads:/mnt/media2t/downloads
-      - /mnt/media3t/downloads:/mnt/media3t/downloads
 ```
 
 No GPU config needed. Works anywhere.
@@ -194,9 +186,6 @@ services:
       - "${PWD}/config.yml:/app/config.yml:ro"
       - "${PWD}/.env:/app/.env"
       - "${PWD}/var:/app/var"
-      - /mnt/media1t/downloads:/mnt/media1t/downloads
-      - /mnt/media2t/downloads:/mnt/media2t/downloads
-      - /mnt/media3t/downloads:/mnt/media3t/downloads
 ```
 
 Host needs: NVIDIA driver + `nvidia-container-toolkit`.
@@ -226,9 +215,6 @@ services:
       - "${PWD}/config.yml:/app/config.yml:ro"
       - "${PWD}/.env:/app/.env"
       - "${PWD}/var:/app/var"
-      - /mnt/media1t/downloads:/mnt/media1t/downloads
-      - /mnt/media2t/downloads:/mnt/media2t/downloads
-      - /mnt/media3t/downloads:/mnt/media3t/downloads
 ```
 
 Host needs: `intel-media-va-driver-non-free` on host kernel. The `render` GID (`109`) may differ — users should check `getent group render` on their host.
@@ -248,21 +234,19 @@ services:
       - "${WEBUI_PORT:-8080}:8080"
     devices:
       - /dev/dri:/dev/dri
-      - /dev/kfd:/dev/kfd
     group_add:
-      - "44"     # video group (ROCm requirement)
+      - "109"
+    environment:
+      - LIBVA_DRIVER_NAME=radeonsi
     env_file:
       - .env
     volumes:
       - "${PWD}/config.yml:/app/config.yml:ro"
       - "${PWD}/.env:/app/.env"
       - "${PWD}/var:/app/var"
-      - /mnt/media1t/downloads:/mnt/media1t/downloads
-      - /mnt/media2t/downloads:/mnt/media2t/downloads
-      - /mnt/media3t/downloads:/mnt/media3t/downloads
 ```
 
-Host needs: AMD ROCm drivers installed. The `video` GID (`44`) differs from the `render` GID — ROCm requires the `video` group for `/dev/kfd` access.
+Host needs: AMD Mesa VA-API drivers (`mesa-va-drivers`). Uses the `vaapi` profile with `radeonsi` VA-API driver (same device mount as Intel, different `LIBVA_DRIVER_NAME`). WIP — AMF (`h264_amf`) is Windows-only and not available in jrottenberg images.
 
 ## Volumes
 
@@ -298,14 +282,13 @@ User opens `http://localhost:8080` in a browser, picks a mode and flags, clicks 
 
 ## TODO
 
-- [ ] Research AMD ROCm/AMF runtime requirements for the container
-- [ ] Create Dockerfile.cpu + docker-compose.yml
-- [ ] Create Dockerfile.nvidia + docker-compose.nvidia.yml
-- [ ] Create Dockerfile.intel + docker-compose.intel.yml
-- [ ] Create Dockerfile.amd + docker-compose.amd.yml
-- [ ] Fix GPU detection for Docker — check device files before encoder names
-- [ ] Fix Intel encoder mapping: `h264_vaapi` → `h264_qsv`, `-hwaccel vaapi` → `-hwaccel qsv`
-- [ ] Test build + run on real media (all 4 variants)
+- [x] Create Dockerfile.cpu + docker-compose.yml
+- [x] Create Dockerfile.nvidia + docker-compose.nvidia.yml
+- [x] Create Dockerfile.intel + docker-compose.intel.yml
+- [x] Create Dockerfile.amd + docker-compose.amd.yml
+- [x] Fix GPU detection for Docker — check device files before encoder names
+- [x] Fix Intel encoder mapping: `h264_vaapi` → `h264_qsv`, `-hwaccel vaapi` → `-hwaccel qsv`
+- [ ] Test build + run on real media (all 4 variants) — CPU and NVIDIA smoke-tested
 - [ ] Document host prerequisites in README
 - [ ] CI build
 - [ ] Docker Hub / registry push option

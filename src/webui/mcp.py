@@ -10,8 +10,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BASE_DIR / "src"))
 
 import convert as conv
-from webui.runner import get_manager
-from webui.main import build_convert_cmd
+from webui.runner import get_run, start_run
 
 mcp_app = APIRouter(prefix="/mcp")
 
@@ -50,7 +49,7 @@ def mcp_libraries():
         }
         inline_keys = {"target_bitrate", "max_bitrate", "encoder",
                        "keep_audio_langs", "keep_subtitle_langs",
-                       "keep_subtitles", "minimum_savings_percent"}
+                       "minimum_savings_percent"}
         inline = {k: lib[k] for k in inline_keys if k in lib}
         if inline:
             entry["profile_settings"] = inline
@@ -62,31 +61,27 @@ def mcp_libraries():
 
 @mcp_app.post("/run")
 async def mcp_run(req: dict):
-    mgr = get_manager()
-    if mgr.running:
-        return {"error": "A run is already in progress"}, 409
-
+    from webui.main import build_convert_cmd
     cmd = build_convert_cmd(req if isinstance(req, dict) else {})
     try:
-        run_id = await mgr.start(cmd)
-        asyncio.ensure_future(mgr.wait())
+        run_id = await start_run(cmd)
         return {"run_id": run_id, "command": " ".join(cmd)}
     except RuntimeError as e:
-        return {"error": str(e)}, 409
+        return {"error": str(e)}
 
 
 @mcp_app.get("/status/{run_id}")
 def mcp_status(run_id: str):
-    mgr = get_manager()
-    if mgr.run_id != run_id:
+    mgr = get_run(run_id)
+    if not mgr:
         return {"running": False, "exit_code": None}
     return {"running": mgr.running, "exit_code": mgr.exit_code}
 
 
 @mcp_app.post("/stop/{run_id}")
 async def mcp_stop(run_id: str):
-    mgr = get_manager()
-    if mgr.run_id != run_id or not mgr.running:
+    mgr = get_run(run_id)
+    if not mgr or not mgr.running:
         return {"stopped": False, "error": "No matching running process"}
     await mgr.stop()
     return {"stopped": True}
@@ -95,10 +90,10 @@ async def mcp_stop(run_id: str):
 @mcp_app.websocket("/ws/{run_id}")
 async def mcp_ws(websocket: WebSocket, run_id: str):
     await websocket.accept()
-    mgr = get_manager()
+    mgr = get_run(run_id)
     listener_id = f"mcp_ws_{run_id}_{id(websocket)}"
 
-    if mgr.run_id != run_id:
+    if not mgr:
         await websocket.send_json({"type": "error", "data": "Unknown run_id"})
         await websocket.close()
         return

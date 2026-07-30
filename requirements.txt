@@ -4,3 +4,4 @@ pyyaml
 fastapi
 uvicorn[standard]
 websockets
+psutil

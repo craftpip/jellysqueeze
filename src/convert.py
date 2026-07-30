@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from dotenv import load_dotenv
+import state_db
 
 try:
     import yaml as _yaml
@@ -30,6 +31,7 @@ DEFAULT_CRF = int(os.getenv("DEFAULT_CRF", 23))
 DEFAULT_MIN_SAVINGS_PCT = int(os.getenv("MIN_SAVINGS_PCT", 0))
 TRANSCODER = "h264_nvenc"
 TRANSCODER_PROFILE = "nvidia"
+JSON_MODE = False
 FFMPEG_CMD = "ffmpeg"
 FFPROBE_CMD = "ffprobe"
 AVAILABLE_ENCODERS: set[str] | None = None
@@ -38,6 +40,7 @@ DONE_FILE = PROJECT_ROOT / "var" / "_progress.txt"
 SIZE_REPORT_FILE = PROJECT_ROOT / "var" / "size-report.csv"
 PROBE_CACHE_FILE = PROJECT_ROOT / "var" / "probe-cache.json"
 CONFIG_FILE = PROJECT_ROOT / "config.yml"
+ENV_FILE = PROJECT_ROOT / ".env"
 LOGS_DIR = PROJECT_ROOT / "var" / "logs"
 
 VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".mov", ".webm", ".ts", ".flv", ".wmv"}
@@ -63,7 +66,7 @@ VAAPI_DECODABLE_CODECS = {"h264", "hevc", "vp9", "mpeg2video", "vc1"}
 
 HWACCEL_DECODABLE = {
     "nvidia": CUDA_DECODABLE_CODECS,
-    "intel": VAAPI_DECODABLE_CODECS,
+    "intel": QSV_DECODABLE_CODECS,
     "amdgpu": VAAPI_DECODABLE_CODECS,
     "vaapi": VAAPI_DECODABLE_CODECS,
 }
@@ -97,7 +100,7 @@ TRANSCODER_ALIASES = {
 TRANSCODER_ENCODERS = {
     "nvidia": "h264_nvenc",
     "amdgpu": "h264_amf",
-    "intel": "h264_vaapi",
+    "intel": "h264_qsv",
     "cpu": "libx264",
     "vaapi": "h264_vaapi",
 }
@@ -108,6 +111,9 @@ _progress_lines = 0
 
 def clear_progress_display():
     global _progress_lines
+    if JSON_MODE:
+        _progress_lines = 0
+        return
     if _progress_lines > 0:
         sys.stderr.write(f"\033[{_progress_lines}A\033[J")
         sys.stderr.flush()
@@ -179,6 +185,7 @@ def print_progress(current: int, total: int, ok_cnt: int, skip_cnt: int, fail_cn
     else:
         eta = ""
     log.info(f"[{bar}] {done}/{total}  OK={ok_cnt}  SK={skip_cnt}  FL={fail_cnt}  {eta}")
+    emit_json("overall_progress", completed=done, total=total, ok=ok_cnt, skip=skip_cnt, fail=fail_cnt)
 
 
 def _is_executable(path: Path) -> bool:
@@ -240,6 +247,8 @@ def get_available_encoders() -> set[str]:
     if AVAILABLE_ENCODERS is not None:
         return AVAILABLE_ENCODERS
 
+    emit_json("run_status", phase="probe", message="Probing available ffmpeg encoders...")
+    log.info("Probing available ffmpeg encoders...")
     cmd = [FFMPEG_CMD, "-hide_banner", "-encoders"]
     r = subprocess.run(cmd, capture_output=True, text=True)
     encoders: set[str] = set()
@@ -255,10 +264,26 @@ def get_available_encoders() -> set[str]:
     return AVAILABLE_ENCODERS
 
 
+def device_available(profile: str) -> bool:
+    if profile == "nvidia":
+        try:
+            r = subprocess.run(["nvidia-smi"], capture_output=True)
+            return r.returncode == 0
+        except FileNotFoundError:
+            return False
+    elif profile in ("intel", "vaapi", "amdgpu"):
+        return os.path.exists("/dev/dri/renderD128")
+    elif profile == "cpu":
+        return True
+    return False
+
+
 def resolve_transcoder(use_value: str):
     global TRANSCODER, TRANSCODER_PROFILE
 
-    requested = (use_value or "nvidia").strip().lower()
+    requested = (use_value or "").strip().lower()
+    if not requested:
+        return True, None
     profile = TRANSCODER_ALIASES.get(requested)
     encoders = get_available_encoders()
 
@@ -266,6 +291,8 @@ def resolve_transcoder(use_value: str):
         encoder = TRANSCODER_ENCODERS[profile]
         if encoder not in encoders:
             return False, f"encoder_not_supported({encoder})"
+        if not device_available(profile):
+            return False, f"device_not_available({profile})"
         TRANSCODER = encoder
         TRANSCODER_PROFILE = profile
         return True, None
@@ -347,29 +374,11 @@ def remote_file_size(host: str, remote_path: str) -> int | None:
 
 
 def load_done() -> dict[str, str]:
-    if not DONE_FILE.exists():
-        return {}
-    entries = {}
-    for line in DONE_FILE.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "|" not in line:
-            continue
-        path, opt = line.split("|", 1)
-        entries[path] = opt
-    return entries
+    return state_db.load_done()
 
 
 def save_done(done: dict[str, str]) -> None:
-    DONE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = DONE_FILE.with_suffix(DONE_FILE.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        for path, opt in done.items():
-            f.write(f"{path}|{opt}\n")
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, DONE_FILE)
+    state_db.save_done(done)
 
 
 def append_size_report(rows: list[tuple[str, int, int]]) -> None:
@@ -395,22 +404,18 @@ def write_per_run_size_report(log_path: Path) -> None:
 
 
 def load_probe_cache() -> dict[str, dict]:
-    if not PROBE_CACHE_FILE.exists():
-        return {}
-    try:
-        data = json.loads(PROBE_CACHE_FILE.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        pass
-    return {}
+    emit_json("run_status", phase="cache", message=f"Loading probe cache...")
+    log.info("Loading probe cache from SQLite")
+    return state_db.load_probe_cache()
 
 
 def save_probe_cache(cache: dict[str, dict]) -> None:
-    PROBE_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = PROBE_CACHE_FILE.with_suffix(PROBE_CACHE_FILE.suffix + ".tmp")
-    tmp.write_text(json.dumps(cache, ensure_ascii=True, separators=(",", ":")), encoding="utf-8")
-    os.replace(tmp, PROBE_CACHE_FILE)
+    state_db.save_probe_cache(cache)
+
+
+def emit_json(type_: str, **data):
+    if JSON_MODE:
+        print(json.dumps({"type": type_, **data}, default=str), flush=True)
 
 
 def load_config() -> dict | None:
@@ -429,6 +434,57 @@ def load_config() -> dict | None:
         return None
 
 
+def save_config(config: dict) -> bool:
+    if _yaml is None:
+        log.warning("pyyaml not installed; cannot save config.yml")
+        return False
+    try:
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp_file = CONFIG_FILE.with_name(f".{CONFIG_FILE.name}.tmp")
+        with tmp_file.open("w", encoding="utf-8") as f:
+            _yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_file, CONFIG_FILE)
+        return True
+    except Exception as e:
+        log.warning(f"Failed to save config.yml: {e}")
+        return False
+
+
+def save_env(overrides: dict[str, str]) -> bool:
+    try:
+        ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
+        lines: list[str] = []
+        seen_keys: set[str] = set()
+        if ENV_FILE.exists():
+            for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or "=" not in stripped:
+                    lines.append(line)
+                    continue
+                k, _, v = stripped.partition("=")
+                key = k.strip()
+                if key in overrides:
+                    lines.append(f"{key}={overrides[key]}")
+                    seen_keys.add(key)
+                else:
+                    lines.append(line)
+        for k, v in overrides.items():
+            if k not in seen_keys:
+                lines.append(f"{k}={v}")
+        tmp_file = ENV_FILE.with_name(f".{ENV_FILE.name}.tmp")
+        with tmp_file.open("w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_file, ENV_FILE)
+        return True
+    except Exception as e:
+        log.warning(f"Failed to save .env: {e}")
+        return False
+
+
 def get_profile_settings(config: dict, profile_name: str) -> dict | None:
     profiles = config.get("profiles") or {}
     return profiles.get(profile_name)
@@ -437,7 +493,7 @@ def get_profile_settings(config: dict, profile_name: str) -> dict | None:
 _PROFILE_KEYS = frozenset({
     "target_bitrate", "max_bitrate", "encoder",
     "keep_audio_langs", "keep_subtitle_langs",
-    "keep_subtitles", "minimum_savings_percent",
+    "minimum_savings_percent",
 })
 
 
@@ -471,6 +527,14 @@ def set_profile_globals(profile: dict) -> None:
         ALLOWED_AUDIO_LANGS = set(lang.strip().lower() for lang in profile["keep_audio_langs"])
     if "keep_subtitle_langs" in profile:
         ALLOWED_SUBTITLE_LANGS = set(lang.strip().lower() for lang in profile["keep_subtitle_langs"])
+
+
+def conversion_option(crf: int | None, min_savings_pct: int = 0) -> str:
+    """Return a cache key for every setting that changes conversion output."""
+    mode = f"crf:{crf}" if crf is not None else f"br:{TARGET_BR}"
+    subtitles = ",".join(sorted(ALLOWED_SUBTITLE_LANGS or []))
+    audio = ",".join(sorted(ALLOWED_AUDIO_LANGS))
+    return f"{mode}|max:{MAX_BR}|encoder:{TRANSCODER_PROFILE}|audio:{audio}|subtitles:{subtitles}|savings:{min_savings_pct}"
 
 
 def normalize_library_paths(lib: dict) -> list[str]:
@@ -522,19 +586,21 @@ def run_library_scan(
     min_savings_pct: int = 0,
     profile: dict | None = None,
     ignore_paths: list[str] | None = None,
+    scanned_paths: list[tuple[Path, list[Path], int, float]] | None = None,
 ) -> tuple[int, int, int, float, bool]:
-    global TARGET_BR, MAX_BR, TRANSCODER, TRANSCODER_PROFILE, ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS
+    global TARGET_BR, MAX_BR, BUFSIZE, TRANSCODER, TRANSCODER_PROFILE, ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS
 
     if profile:
         old_br = TARGET_BR
         old_max = MAX_BR
+        old_bufsize = BUFSIZE
         old_encoder = TRANSCODER
         old_profile = TRANSCODER_PROFILE
         old_langs = set(ALLOWED_AUDIO_LANGS)
         old_sub_langs = set(ALLOWED_SUBTITLE_LANGS) if ALLOWED_SUBTITLE_LANGS is not None else None
         set_profile_globals(profile)
     else:
-        old_br = old_max = 0
+        old_br = old_max = old_bufsize = 0
         old_encoder = old_profile = ""
         old_langs = set()
         old_sub_langs = None
@@ -544,24 +610,17 @@ def run_library_scan(
     scanned_any = False
 
     try:
-        for raw_path in lib_paths:
-            path_obj = Path(raw_path).expanduser().resolve()
-            if not path_obj.exists() or not path_obj.is_dir():
-                log.warning(f"Library '{library_name}' path not found: {path_obj}, skipping")
-                continue
-            if ignore_paths and any(seg in str(path_obj) for seg in ignore_paths):
-                log.info(f"Ignoring path (--ignore-path match): {path_obj}")
-                continue
+        if scanned_paths is None:
+            scanned_paths = scan_library_paths(library_name, lib_paths, ignore_paths)
 
+        profile_min_savings = max(min_savings_pct, int(profile.get("minimum_savings_percent", 0)) if profile else 0)
+        for path_obj, files, scanned_entries, discovery_time in scanned_paths:
             scanned_any = True
-            if len(lib_paths) > 1:
-                log.info(f"Path: {path_obj}")
-
-            profile_min_savings = max(min_savings_pct, int(profile.get("minimum_savings_percent", 0)) if profile else 0)
             ok, skip, fail, space_mb = main(
                 str(path_obj), crf, verbose,
                 parse_exclude_dirs(""), False, workers,
                 profile_min_savings, dry_run, ignore_paths,
+                files, scanned_entries, discovery_time,
             )
             total_ok += ok
             total_skip += skip
@@ -573,17 +632,57 @@ def run_library_scan(
         if profile:
             TARGET_BR = old_br
             MAX_BR = old_max
+            BUFSIZE = old_bufsize
             TRANSCODER = old_encoder
             TRANSCODER_PROFILE = old_profile
             ALLOWED_AUDIO_LANGS = old_langs
             ALLOWED_SUBTITLE_LANGS = old_sub_langs
 
 
+def scan_library_paths(
+    library_name: str,
+    lib_paths: list[str],
+    ignore_paths: list[str] | None = None,
+) -> list[tuple[Path, list[Path], int, float]]:
+    """Discover every valid root now; process these results after all scans finish."""
+    excludes = parse_exclude_dirs("")
+    scanned_paths: list[tuple[Path, list[Path], int, float]] = []
+
+    for raw_path in lib_paths:
+        path_obj = Path(raw_path).expanduser().resolve()
+        if not path_obj.exists() or not path_obj.is_dir():
+            log.warning(f"Library '{library_name}' path not found: {path_obj}, skipping")
+            continue
+        if ignore_paths and any(segment in str(path_obj) for segment in ignore_paths):
+            log.info(f"Ignoring path (--ignore-path match): {path_obj}")
+            continue
+
+        log.info(f"Scanning: {path_obj}")
+        if excludes:
+            log.info(f"Excluding dirs: {', '.join(sorted(excludes))}")
+        emit_json("run_status", phase="scan", message=f"Scanning: {path_obj}")
+        discovery_started = time.perf_counter()
+        files, deleted_tmp, scanned_entries = discover_videos_and_cleanup(path_obj, excludes)
+        if ignore_paths:
+            files = [path for path in files if not any(segment in str(path) for segment in ignore_paths)]
+        discovery_time = time.perf_counter() - discovery_started
+
+        if deleted_tmp:
+            log.info(f"Cleanup: deleted {deleted_tmp} leftover temp file(s)")
+        log.info(f"Found {len(files)} file(s)")
+        log.info(f"Discovery done: scanned {scanned_entries} filesystem entries in {discovery_time:.2f}s")
+        emit_json("run_folder", root=str(path_obj), total=len(files))
+        scanned_paths.append((path_obj, files, scanned_entries, discovery_time))
+
+    return scanned_paths
+
+
 def make_auto_log_path(mode: str) -> Path:
     now = datetime.now(UTC)
-    date_dir = LOGS_DIR / now.strftime("%Y-%m-%d")
+    log_group = mode.replace("/", "_").replace("\\", "_")
+    date_dir = LOGS_DIR / log_group / now.strftime("%Y-%m-%d")
     timestamp = now.strftime("%H-%M-%S")
-    return date_dir / f"{timestamp}_{mode}.log"
+    return date_dir / f"{timestamp}.log"
 
 
 def print_startup_banner(
@@ -775,6 +874,7 @@ def discover_videos_and_cleanup(root: Path, excludes: set[str], progress_every: 
         except FileNotFoundError:
             continue
 
+    files.sort(key=lambda p: p.resolve().as_posix())
     return files, deleted, scanned_entries
 
 
@@ -1057,6 +1157,40 @@ def get_media_duration_seconds(file: Path) -> float | None:
         return None
 
 
+def get_total_frames(file: Path) -> int | None:
+    probe = ffprobe_json(file, "format=duration:stream=index,codec_type,nb_frames,avg_frame_rate,r_frame_rate")
+    if not probe:
+        return None
+    streams = probe.get("streams", [])
+    duration = None
+    try:
+        duration = float(probe["format"]["duration"])
+    except (KeyError, ValueError, TypeError):
+        pass
+    for s in streams:
+        if s.get("codec_type") != "video":
+            continue
+        nb = s.get("nb_frames")
+        if nb and nb != "N/A":
+            try:
+                return int(nb)
+            except (ValueError, TypeError):
+                pass
+        if duration and duration > 0:
+            for key in ("avg_frame_rate", "r_frame_rate"):
+                fr = s.get(key, "0/1")
+                if "/" in fr:
+                    try:
+                        num, den = fr.split("/")
+                        n, d = float(num), float(den)
+                        if d > 0 and n > 0:
+                            return int(duration * n / d)
+                    except (ValueError, ZeroDivisionError):
+                        pass
+            break
+    return None
+
+
 def validate_output_media(source: Path, output: Path) -> tuple[bool, str]:
     source_duration = get_media_duration_seconds(source)
     output_duration = get_media_duration_seconds(output)
@@ -1189,7 +1323,7 @@ def summarize_ffmpeg_error(stderr: str) -> str:
 
 
 def in_progress_pct(pct: float) -> float:
-    return min(max(pct, 0.0), 99.5)
+    return min(max(pct, 0.0), 100.0)
 
 
 def safe_replace(src: Path, dst: Path):
@@ -1265,7 +1399,7 @@ def build_ffmpeg_cmd(
         elif active_profile == "nvidia":
             hwaccel_args = ["-hwaccel", "cuda"]
         elif active_profile == "intel":
-            hwaccel_args = ["-hwaccel", "vaapi"]
+            hwaccel_args = ["-hwaccel", "qsv"]
         elif active_profile == "amdgpu":
             hwaccel_args = ["-hwaccel", "vaapi"]
         elif active_profile == "vaapi" or active_encoder.endswith("_vaapi"):
@@ -1284,7 +1418,7 @@ def build_ffmpeg_cmd(
         cmd += ["-preset", "p4", "-pix_fmt", "yuv420p"]
     elif active_profile == "amdgpu":
         cmd += ["-usage", "transcoding", "-quality", "balanced", "-pix_fmt", "yuv420p"]
-    elif active_profile == "intel" or active_profile == "vaapi" or active_encoder.endswith("_vaapi"):
+    elif active_profile == "vaapi" or active_encoder.endswith("_vaapi"):
         cmd += ["-vaapi_device", "/dev/dri/renderD128", "-vf", "format=nv12,hwupload"]
 
     if crf is not None:
@@ -1424,46 +1558,106 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
                 return "FAIL", "cmd_build_failed", None
             if verbose:
                 log.info(f"Command ({run_name}): {' '.join(cmd)}")
+            log.info(f"Encoding: {file.name} ({run_name})...")
+            emit_json("run_status", phase="encode", message=f"Encoding: {file.name}")
 
             try:
                 if verbose:
                     subprocess.run(cmd, check=True)
                 elif show_progress:
                     dur = src_duration or get_media_duration_seconds(file)
-                    if seek_seconds > 0 and dur and progress_callback:
-                        progress_callback(file, in_progress_pct(seek_seconds / dur * 100))
+                    if progress_callback:
+                        progress_callback(file, 0.0, position_seconds=seek_seconds, duration_seconds=dur)
                     proc = subprocess.Popen(
                         cmd + ["-progress", "pipe:"],
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                         text=True, bufsize=1,
                     )
+                    stderr_buf: list[str] = []
+                    stderr_done = threading.Event()
+                    def _drain_stderr():
+                        for line in proc.stderr:
+                            stderr_buf.append(line)
+                        stderr_done.set()
+                    _t = threading.Thread(target=_drain_stderr, daemon=True)
+                    _t.start()
                     last_up = 0
+                    total_frames = None
+                    timestamp_seen = False
+                    unavailable_timestamp_updates = 0
                     for raw in proc.stdout:
                         rl = raw.strip()
                         if "=" not in rl:
                             continue
                         k, _, v = rl.partition("=")
-                        if k == "out_time_us" and dur and dur > 0 and v != "N/A":
-                            pct = in_progress_pct((seek_seconds + int(v) / 1000000) / dur * 100)
+                        pct = None
+                        position_seconds = None
+                        frame_count = None
+                        if k == "frame":
+                            try:
+                                frame_count = int(v)
+                            except (ValueError, TypeError):
+                                pass
+                            if not timestamp_seen and unavailable_timestamp_updates >= 2 and frame_count is not None:
+                                if total_frames is None:
+                                    total_frames = get_total_frames(file)
+                                if total_frames:
+                                    pct = in_progress_pct(frame_count / total_frames * 100)
+                        if k in {"out_time_us", "out_time_ms"} and dur and dur > 0:
+                            if v == "N/A":
+                                if not timestamp_seen:
+                                    unavailable_timestamp_updates += 1
+                            try:
+                                val = int(v)
+                                position_seconds = seek_seconds + val / 1000000
+                                pct = in_progress_pct(position_seconds / dur * 100)
+                                timestamp_seen = True
+                                unavailable_timestamp_updates = 0
+                            except (ValueError, TypeError):
+                                pass
+                        elif k == "out_time" and dur and dur > 0:
+                            if v == "N/A":
+                                if not timestamp_seen:
+                                    unavailable_timestamp_updates += 1
+                            try:
+                                hours, minutes, seconds = v.split(":")
+                                position_seconds = seek_seconds + int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+                                pct = in_progress_pct(position_seconds / dur * 100)
+                                timestamp_seen = True
+                                unavailable_timestamp_updates = 0
+                            except (ValueError, TypeError):
+                                pass
+                        if k == "progress" and v.strip() == "end":
+                            if progress_callback:
+                                progress_callback(file, 99.5, finalizing=True)
+                            break
+                        if pct is not None:
                             now = time.time()
                             if now - last_up >= 0.5:
                                 f = int(14 * pct / 100)
                                 bar = "█" * f + "░" * (14 - f)
                                 if progress_callback:
-                                    progress_callback(file, pct)
+                                    progress_callback(
+                                        file,
+                                        pct,
+                                        position_seconds=position_seconds,
+                                        duration_seconds=dur,
+                                        frame_count=frame_count,
+                                        total_frames=total_frames,
+                                    )
                                 else:
-                                    sys.stderr.write(f"\r  [{bar}] {pct:5.1f}%  {file.stem:<50.50s}")
+                                    if JSON_MODE:
+                                        sys.stderr.write(f"[{bar}] {pct:5.1f}%  {file.stem}\n")
+                                    else:
+                                        sys.stderr.write(f"\r  [{bar}] {pct:5.1f}%  {file.stem:<50.50s}")
                                     sys.stderr.flush()
                                 last_up = now
-                        elif k == "progress" and v.strip() == "end":
-                            break
-                    if progress_callback:
-                        progress_callback(file, None)
-                    if not progress_callback:
+                    if not progress_callback and not JSON_MODE:
                         sys.stderr.write("\r" + " " * 80 + "\r")
                         sys.stderr.flush()
-                    _, ff_stderr = proc.communicate()
                     proc.wait()
+                    stderr_done.wait(timeout=5)
+                    ff_stderr = "".join(stderr_buf)
                     if proc.returncode != 0:
                         raise subprocess.CalledProcessError(proc.returncode, cmd, stderr=ff_stderr)
                 else:
@@ -1510,8 +1704,6 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
                 finished = True
                 break
             except subprocess.CalledProcessError as e:
-                if progress_callback:
-                    progress_callback(file, None)
                 err_summary = summarize_ffmpeg_error(getattr(e, "stderr", "") or "")
                 if hasattr(e, 'stderr') and e.stderr:
                     last_error = f"ffmpeg_failed({run_name}): {e.stderr}"
@@ -1609,6 +1801,9 @@ def main(
     min_savings_pct: int = 0,
     dry_run: bool = False,
     ignore_paths: list[str] | None = None,
+    discovered_files: list[Path] | None = None,
+    discovered_entries: int | None = None,
+    discovery_time: float | None = None,
 ):
     if not resolve_ffmpeg_tools():
         log.error("FATAL: ffmpeg/ffprobe not found in PATH")
@@ -1624,21 +1819,33 @@ def main(
 
     excludes = exclude_dirs if exclude_dirs is not None else parse_exclude_dirs("")
 
-    log.info(f"Scanning: {root}")
-    if excludes:
-        log.info(f"Excluding dirs: {', '.join(sorted(excludes))}")
-    if cleanup_tmp:
-        cleanup_tmp_files(root)
+    if discovered_files is None:
+        log.info(f"Scanning: {root}")
+        if excludes:
+            log.info(f"Excluding dirs: {', '.join(sorted(excludes))}")
+        if cleanup_tmp:
+            cleanup_tmp_files(root)
+    else:
+        log.info(f"Using completed discovery for: {root}")
 
     done = load_done()
     probe_cache = load_probe_cache()
     probe_cache_dirty = False
 
-    discovery_started = time.perf_counter()
-    files, deleted_tmp, scanned_entries = discover_videos_and_cleanup(root, excludes)
-    if ignore_paths:
-        files = [path for path in files if not any(segment in str(path) for segment in ignore_paths)]
-    discovery_time = time.perf_counter() - discovery_started
+    if discovered_files is None:
+        emit_json("run_status", phase="scan", message=f"Scanning: {root}")
+        discovery_started = time.perf_counter()
+        files, deleted_tmp, scanned_entries = discover_videos_and_cleanup(root, excludes)
+        if ignore_paths:
+            files = [path for path in files if not any(segment in str(path) for segment in ignore_paths)]
+        discovery_time = time.perf_counter() - discovery_started
+        emit_folder = True
+    else:
+        files = discovered_files
+        deleted_tmp = 0
+        scanned_entries = discovered_entries or 0
+        discovery_time = discovery_time or 0.0
+        emit_folder = False
 
     if deleted_tmp:
         log.info(f"Cleanup: deleted {deleted_tmp} leftover temp file(s)")
@@ -1646,6 +1853,8 @@ def main(
     total = len(files)
     log.info(f"Found {total} file(s)")
     log.info(f"Discovery done: scanned {scanned_entries} filesystem entries in {discovery_time:.2f}s")
+    if emit_folder:
+        emit_json("run_folder", root=str(root), total=total)
 
     workers = max(1, int(workers or 1))
     if workers > 1:
@@ -1658,15 +1867,69 @@ def main(
     progress_started = time.perf_counter()
     progress_last_print = 0.0
     if workers <= 1:
+        converting_progress: dict[str, float] = {}
+        progress_cb_lock = threading.Lock()
+        progress_changed = threading.Event()
+        _last_reported_pct: dict[str, float] = {}
+
+        def on_progress(
+            file: Path,
+            pct: float | None,
+            finalizing: bool = False,
+            position_seconds: float | None = None,
+            duration_seconds: float | None = None,
+            frame_count: int | None = None,
+            total_frames: int | None = None,
+        ):
+            emit_json(
+                "progress",
+                file=str(file),
+                percent=pct,
+                finalizing=finalizing,
+                position_seconds=position_seconds,
+                duration_seconds=duration_seconds,
+                frame_count=frame_count,
+                total_frames=total_frames,
+            )
+            if not JSON_MODE:
+                with progress_cb_lock:
+                    key = file.resolve().as_posix()
+                    if pct is None:
+                        converting_progress.pop(key, None)
+                    else:
+                        converting_progress[key] = pct
+                progress_changed.set()
+
+        if JSON_MODE:
+            progress_done = True
+            ticker = None
+        else:
+            draw_progress_bar(0, total, 0, 0, 0, progress_started, {})
+            progress_done = False
+
+            def progress_ticker():
+                while not progress_done:
+                    progress_changed.wait(0.5)
+                    progress_changed.clear()
+                    with progress_cb_lock:
+                        snap = dict(converting_progress)
+                    draw_progress_bar(0, total, ok, skip, fail, progress_started, snap)
+
+            ticker = threading.Thread(target=progress_ticker, daemon=True)
+            ticker.start()
+
+        emit_json("run_status", phase="process", message=f"Processing {total} file(s)...")
+        log.info(f"Processing {total} file(s)...")
         for i, f in enumerate(files, 1):
             path = f.resolve().as_posix()
-            current_opt = f"crf:{crf}" if crf else f"br:{TARGET_BR}"
+            current_opt = conversion_option(crf, min_savings_pct)
 
             try:
                 st = f.stat()
             except FileNotFoundError:
                 skip += 1
                 log.info(f"[{i}/{total}] SKIP: {f} :: missing")
+                emit_json("result", file=str(f), status="SKIP", msg="missing")
                 print_progress(i, total, ok, skip, fail, progress_started, workers)
                 continue
             size = int(st.st_size)
@@ -1675,6 +1938,7 @@ def main(
             if done.get(path) == current_opt:
                 skip += 1
                 log.info(f"[{i}/{total}] SKIP: {f} :: already_done")
+                emit_json("result", file=str(f), status="SKIP", msg="already_done")
                 print_progress(i, total, ok, skip, fail, progress_started, workers)
                 continue
 
@@ -1689,6 +1953,7 @@ def main(
                 skip += 1
                 cached_msg = cache_entry.get("msg", "cached_skip")
                 log.info(f"[{i}/{total}] SKIP: {f} :: cache({cached_msg})")
+                emit_json("result", file=str(f), status="SKIP", msg=f"cache({cached_msg})")
                 print_progress(i, total, ok, skip, fail, progress_started, workers)
                 continue
 
@@ -1697,16 +1962,23 @@ def main(
                 if br is not None and br <= MAX_BR:
                     skip += 1
                     log.info(f"[{i}/{total}] WOULD_SKIP: {f} :: ok({br}kbps)")
+                    emit_json("result", file=str(f), status="SKIP", msg=f"would_skip(ok({br}kbps))")
                 else:
                     ok += 1
                     log.info(f"[{i}/{total}] WOULD_CONVERT: {f} :: {br or 'unknown'} kbps")
+                    emit_json("result", file=str(f), status="OK", msg=f"would_convert({br or 'unknown'}kbps)")
                 print_progress(i, total, ok, skip, fail, progress_started, workers)
                 continue
 
             log.info(f"[{i}/{total}] Checking: {f}")
             check_started = time.perf_counter()
-            status, msg, size_row = convert_if_needed(f, crf, verbose, min_savings_pct, show_progress=True)
+            status, msg, size_row = convert_if_needed(f, crf, verbose, min_savings_pct, show_progress=True, progress_callback=on_progress)
+            on_progress(f, None)
             elapsed = time.perf_counter() - check_started
+
+            with progress_cb_lock:
+                converting_progress.pop(path, None)
+
             if status == "OK":
                 conversion_time += elapsed
                 ok += 1
@@ -1718,6 +1990,9 @@ def main(
                 if size_row:
                     size_rows.append(size_row)
                 log.info(f"[{i}/{total}] OK: {f} :: {msg}")
+                emit_json("result", file=str(f), status="OK", msg=msg,
+                          before=size_row[1] if size_row else 0,
+                          after=size_row[2] if size_row else 0)
             elif status == "SKIP":
                 skip += 1
                 probe_cache[path] = {
@@ -1729,7 +2004,11 @@ def main(
                 }
                 probe_check_time += elapsed
                 probe_cache_dirty = True
+                if msg.startswith(("savings_too_small(", "output_larger(")):
+                    save_probe_cache(probe_cache)
+                    probe_cache_dirty = False
                 log.info(f"[{i}/{total}] SKIP: {f} :: {msg}")
+                emit_json("result", file=str(f), status="SKIP", msg=msg)
             else:
                 if str(msg).startswith("ffmpeg_failed") or str(msg).startswith("replace_failed"):
                     conversion_time += elapsed
@@ -1740,7 +2019,15 @@ def main(
                     del probe_cache[path]
                     probe_cache_dirty = True
                 log.error(f"[{i}/{total}] FAIL: {f} :: {msg}")
+                emit_json("result", file=str(f), status="FAIL", msg=msg)
             print_progress(i, total, ok, skip, fail, progress_started, workers)
+
+        if not JSON_MODE:
+            progress_done = True
+            ticker.join(timeout=3)
+            if _progress_lines > 0:
+                sys.stderr.write(f"\033[{_progress_lines}A\033[J")
+                sys.stderr.flush()
         sys.stderr.write("\n")
         sys.stderr.flush()
     else:
@@ -1751,7 +2038,25 @@ def main(
         progress_cb_lock = threading.Lock()
         progress_changed = threading.Event()
 
-        def on_progress(file: Path, pct: float | None):
+        def on_progress(
+            file: Path,
+            pct: float | None,
+            finalizing: bool = False,
+            position_seconds: float | None = None,
+            duration_seconds: float | None = None,
+            frame_count: int | None = None,
+            total_frames: int | None = None,
+        ):
+            emit_json(
+                "progress",
+                file=str(file),
+                percent=pct,
+                finalizing=finalizing,
+                position_seconds=position_seconds,
+                duration_seconds=duration_seconds,
+                frame_count=frame_count,
+                total_frames=total_frames,
+            )
             with progress_cb_lock:
                 key = file.resolve().as_posix()
                 if pct is None:
@@ -1762,13 +2067,13 @@ def main(
 
         def process_file(i: int, f: Path) -> dict:
             path = f.resolve().as_posix()
-            current_opt = f"crf:{crf}" if crf else f"br:{TARGET_BR}"
+            current_opt = conversion_option(crf, min_savings_pct)
 
             try:
                 st = f.stat()
             except FileNotFoundError:
                 log.info(f"[{i}/{total}] SKIP: {f} :: missing")
-                return {"status": "SKIP", "time_kind": None, "elapsed": 0.0}
+                return {"status": "SKIP", "msg": "missing", "file": f, "time_kind": None, "elapsed": 0.0}
 
             size = int(st.st_size)
             mtime_ns = int(st.st_mtime_ns)
@@ -1777,7 +2082,7 @@ def main(
                 already_done = done.get(path) == current_opt
             if already_done:
                 log.info(f"[{i}/{total}] SKIP: {f} :: already_done")
-                return {"status": "SKIP", "time_kind": None, "elapsed": 0.0}
+                return {"status": "SKIP", "msg": "already_done", "file": f, "time_kind": None, "elapsed": 0.0}
 
             cache_entry = probe_cache_snapshot.get(path)
             if (
@@ -1789,22 +2094,23 @@ def main(
             ):
                 cached_msg = cache_entry.get("msg", "cached_skip")
                 log.info(f"[{i}/{total}] SKIP: {f} :: cache({cached_msg})")
-                return {"status": "SKIP", "time_kind": None, "elapsed": 0.0}
+                return {"status": "SKIP", "msg": f"cache({cached_msg})", "file": f, "time_kind": None, "elapsed": 0.0}
 
             if dry_run:
                 br = get_estimated_bitrate_kbps(f)
                 if br is not None and br <= MAX_BR:
                     log.info(f"[{i}/{total}] WOULD_SKIP: {f} :: ok({br}kbps)")
-                    return {"status": "SKIP", "time_kind": None, "elapsed": 0.0}
+                    return {"status": "SKIP", "msg": f"would_skip(ok({br}kbps))", "file": f, "time_kind": None, "elapsed": 0.0}
                 else:
                     log.info(f"[{i}/{total}] WOULD_CONVERT: {f} :: {br or 'unknown'} kbps")
-                    return {"status": "OK", "time_kind": None, "elapsed": 0.0}
+                    return {"status": "OK", "msg": f"would_convert({br or 'unknown'}kbps)", "file": f, "time_kind": None, "elapsed": 0.0}
 
             log.info(f"[{i}/{total}] Checking: {f}")
             check_started = time.perf_counter()
             try:
                 status, msg, size_row = convert_if_needed(f, crf, verbose, min_savings_pct, show_progress=True, progress_callback=on_progress)
             finally:
+                on_progress(f, None)
                 with progress_cb_lock:
                     converting_progress.pop(path, None)
             elapsed = time.perf_counter() - check_started
@@ -1874,6 +2180,7 @@ def main(
                 except Exception as e:
                     par_fail += 1
                     log.exception(f"FAIL: {f} :: unhandled_worker_exception: {e}")
+                    emit_json("result", file=str(f), status="FAIL", msg=f"unhandled_worker_exception: {e}")
                     continue
 
                 status = result.get("status")
@@ -1883,6 +2190,16 @@ def main(
                     par_skip += 1
                 else:
                     par_fail += 1
+
+                size_row = result.get("size_row")
+                emit_json(
+                    "result",
+                    file=str(result.get("file") or f),
+                    status=status or "FAIL",
+                    msg=result.get("msg") or "",
+                    before=size_row[1] if size_row else 0,
+                    after=size_row[2] if size_row else 0,
+                )
 
                 elapsed = float(result.get("elapsed") or 0.0)
                 if result.get("time_kind") == "conversion":
@@ -1898,7 +2215,9 @@ def main(
                 if path and cache_update:
                     probe_cache[path] = cache_update
                     probe_cache_dirty = True
-                size_row = result.get("size_row")
+                    if str(result.get("msg") or "").startswith(("savings_too_small(", "output_larger(")):
+                        save_probe_cache(probe_cache)
+                        probe_cache_dirty = False
                 if size_row:
                     size_rows.append(size_row)
 
@@ -1920,6 +2239,7 @@ def main(
         ok, skip, fail = par_ok, par_skip, par_fail
 
     if probe_cache_dirty:
+        log.info(f"Saving probe cache ({len(probe_cache)} entries)...")
         save_probe_cache(probe_cache)
 
     append_size_report(size_rows)
@@ -1928,6 +2248,9 @@ def main(
         f"Timing: discovery={discovery_time:.2f}s, probe_check={probe_check_time:.2f}s, conversion={conversion_time:.2f}s"
     )
     log.info(f"Done. OK={ok} SKIP={skip} FAIL={fail} (saved {total_saved_mb:.1f} MB)")
+    emit_json("run_status", phase="done", message=f"Done. OK={ok} SKIP={skip} FAIL={fail}")
+    emit_json("summary", files_total=total, ok=ok, skip=skip, fail=fail,
+              space_saved_mb=round(total_saved_mb, 2))
     return ok, skip, fail, total_saved_mb
 
 
@@ -1961,7 +2284,7 @@ def main_remote(host: str, remote_dir: str, local_tmp: Path, crf: int | None = N
     size_rows: list[tuple[str, int, int]] = []
 
     for i, remote_file in enumerate(files, 1):
-        current_opt = f"crf:{crf}" if crf else f"br:{TARGET_BR}"
+        current_opt = conversion_option(crf, min_savings_pct)
         key = f"{remote_file}|{current_opt}"
 
         if done.get(remote_file) == current_opt:
@@ -2032,6 +2355,7 @@ def main_all(crf: int | None = None, verbose: bool = False, workers: int = 1, dr
     total_space_mb = 0.0
     total_started = time.perf_counter()
 
+    queued_libraries: list[tuple[str, list[str], dict | None, list[tuple[Path, list[Path], int, float]]]] = []
     for lib in libraries:
         lib_name = lib.get("name", "unknown")
         profile = _extract_profile(config, lib)
@@ -2042,8 +2366,14 @@ def main_all(crf: int | None = None, verbose: bool = False, workers: int = 1, dr
             continue
 
         log.info(f"=== Library: {lib_name} ===")
+        scanned_paths = scan_library_paths(lib_name, lib_paths, ignore_paths)
+        if scanned_paths:
+            queued_libraries.append((lib_name, lib_paths, profile, scanned_paths))
+
+    for lib_name, lib_paths, profile, scanned_paths in queued_libraries:
+        log.info(f"=== Processing library: {lib_name} ===")
         ok, skip, fail, space_mb, scanned_any = run_library_scan(
-            lib_name, lib_paths, crf, verbose, workers, dry_run, min_savings_pct, profile, ignore_paths
+            lib_name, lib_paths, crf, verbose, workers, dry_run, min_savings_pct, profile, ignore_paths, scanned_paths
         )
         if not scanned_any:
             continue
@@ -2061,6 +2391,9 @@ def main_all(crf: int | None = None, verbose: bool = False, workers: int = 1, dr
 
     total_elapsed = time.perf_counter() - total_started
     print_summary(total_libraries, total_found, total_ok, total_skip, total_fail, total_space_mb, total_elapsed)
+    emit_json("summary", mode="all", library_count=total_libraries, files_total=total_found,
+              ok=total_ok, skip=total_skip, fail=total_fail,
+              space_saved_mb=round(total_space_mb, 2), elapsed=round(total_elapsed, 2))
 
 
 def main_library(
@@ -2092,7 +2425,9 @@ def main_library(
     total_skip = 0
     total_fail = 0
     total_space_mb = 0.0
+    total_started = time.perf_counter()
 
+    queued_libraries: list[tuple[str, list[str], dict | None, list[tuple[Path, list[Path], int, float]]]] = []
     for library_name in requested_names:
         lib_info = find_library_config(config, library_name)
         if not lib_info:
@@ -2105,8 +2440,14 @@ def main_library(
             continue
 
         log.info(f"=== Library: {library_name} ===")
+        scanned_paths = scan_library_paths(library_name, lib_paths, ignore_paths)
+        if scanned_paths:
+            queued_libraries.append((library_name, lib_paths, profile, scanned_paths))
+
+    for library_name, lib_paths, profile, scanned_paths in queued_libraries:
+        log.info(f"=== Processing library: {library_name} ===")
         ok, skip, fail, space_mb, scanned_any = run_library_scan(
-            library_name, lib_paths, crf, verbose, workers, dry_run, min_savings_pct, profile, ignore_paths
+            library_name, lib_paths, crf, verbose, workers, dry_run, min_savings_pct, profile, ignore_paths, scanned_paths
         )
         if not scanned_any:
             log.error(f"FATAL: library '{library_name}' has no valid paths")
@@ -2122,7 +2463,11 @@ def main_library(
     if not total_libraries:
         return
 
-    print_summary(total_libraries, total_found, total_ok, total_skip, total_fail, total_space_mb, 0)
+    total_elapsed = time.perf_counter() - total_started
+    print_summary(total_libraries, total_found, total_ok, total_skip, total_fail, total_space_mb, total_elapsed)
+    emit_json("summary", mode="library", library_count=total_libraries, files_total=total_found,
+              ok=total_ok, skip=total_skip, fail=total_fail,
+              space_saved_mb=round(total_space_mb, 2), elapsed=round(total_elapsed, 2))
 
 
 def main_jellyfin_recent(
@@ -2135,6 +2480,7 @@ def main_jellyfin_recent(
     min_savings_pct: int = 0,
     ignore_paths: list[str] | None = None,
 ):
+    global TARGET_BR, MAX_BR, BUFSIZE, TRANSCODER, TRANSCODER_PROFILE, ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS
     try:
         from jellyfin_client import JellyfinClient
     except ImportError:
@@ -2178,10 +2524,10 @@ def main_jellyfin_recent(
             seen.add(key)
             unique_files.append((p, lib_name))
 
+    unique_files.sort(key=lambda x: x[0].resolve().as_posix())
     log.info(f"Total unique files to check: {len(unique_files)}")
 
-    current_opt = f"crf:{crf}" if crf else f"br:{TARGET_BR}"
-
+    log.info(f"Loading progress and probe cache...")
     done = load_done()
     probe_cache = load_probe_cache()
     probe_cache_dirty = False
@@ -2189,9 +2535,17 @@ def main_jellyfin_recent(
     ok = skip = fail = 0
     space_saved_mb = 0.0
     started = time.perf_counter()
+    base_settings = (
+        TARGET_BR, MAX_BR, BUFSIZE, TRANSCODER, TRANSCODER_PROFILE,
+        set(ALLOWED_AUDIO_LANGS),
+        set(ALLOWED_SUBTITLE_LANGS) if ALLOWED_SUBTITLE_LANGS is not None else None,
+    )
 
     for i, (file_path, lib_name) in enumerate(unique_files, 1):
         path = file_path.resolve().as_posix()
+        profile = None
+        (TARGET_BR, MAX_BR, BUFSIZE, TRANSCODER, TRANSCODER_PROFILE,
+         ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS) = base_settings
 
         # Apply profile settings for this library
         if config:
@@ -2199,13 +2553,13 @@ def main_jellyfin_recent(
             if lib_info:
                 _path, profile = lib_info
                 if profile:
-                    old_br = TARGET_BR
-                    old_max = MAX_BR
-                    old_encoder = TRANSCODER
-                    old_profile = TRANSCODER_PROFILE
-                    old_langs = set(ALLOWED_AUDIO_LANGS)
-                    old_sub_langs = set(ALLOWED_SUBTITLE_LANGS) if ALLOWED_SUBTITLE_LANGS is not None else None
                     set_profile_globals(profile)
+
+        effective_min_savings = max(
+            min_savings_pct,
+            int(profile.get("minimum_savings_percent", 0)) if profile else 0,
+        )
+        current_opt = conversion_option(crf, effective_min_savings)
 
         if done.get(path) == current_opt:
             skip += 1
@@ -2246,7 +2600,7 @@ def main_jellyfin_recent(
             continue
 
         log.info(f"[{i}/{len(unique_files)}] Checking: {file_path}")
-        status, msg, size_row = convert_if_needed(file_path, crf, verbose, min_savings_pct)
+        status, msg, size_row = convert_if_needed(file_path, crf, verbose, effective_min_savings)
 
         if status == "OK":
             ok += 1
@@ -2255,10 +2609,13 @@ def main_jellyfin_recent(
             if path in probe_cache:
                 del probe_cache[path]
                 probe_cache_dirty = True
+            before = size_row[1] if size_row else 0
+            after = size_row[2] if size_row else 0
             if size_row:
                 saved_mb = (size_row[1] - size_row[2]) / (1024 * 1024)
                 space_saved_mb += saved_mb
             log.info(f"[{i}/{len(unique_files)}] OK: {file_path} :: {msg}")
+            emit_json("result", file=str(file_path), status="OK", msg=msg, before=before, after=after)
         elif status == "SKIP":
             skip += 1
             probe_cache[path] = {
@@ -2266,75 +2623,31 @@ def main_jellyfin_recent(
                 "opt": current_opt, "status": "SKIP", "msg": msg,
             }
             probe_cache_dirty = True
+            if msg.startswith(("savings_too_small(", "output_larger(")):
+                save_probe_cache(probe_cache)
+                probe_cache_dirty = False
             log.info(f"[{i}/{len(unique_files)}] SKIP: {file_path} :: {msg}")
+            emit_json("result", file=str(file_path), status="SKIP", msg=msg)
         else:
             fail += 1
             if path in probe_cache:
                 del probe_cache[path]
                 probe_cache_dirty = True
             log.error(f"[{i}/{len(unique_files)}] FAIL: {file_path} :: {msg}")
+            emit_json("result", file=str(file_path), status="FAIL", msg=msg)
+
+    (TARGET_BR, MAX_BR, BUFSIZE, TRANSCODER, TRANSCODER_PROFILE,
+     ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS) = base_settings
 
     if probe_cache_dirty:
+        log.info(f"Saving probe cache ({len(probe_cache)} entries)...")
         save_probe_cache(probe_cache)
 
     elapsed = time.perf_counter() - started
     print_summary(len(library_names), len(unique_files), ok, skip, fail, space_saved_mb, elapsed)
-
-
-def maybe_launch_servers():
-    config = load_config()
-    if not config:
-        return
-
-    webui_cfg = config.get("webui") or {}
-    mcp_cfg = config.get("mcp") or {}
-
-    if not webui_cfg.get("enabled", True) and not mcp_cfg.get("enabled", True):
-        return
-
-    import threading
-
-    webui_started = False
-    mcp_started = False
-
-    if webui_cfg.get("enabled", True):
-        def start_webui():
-            import uvicorn
-            try:
-                from webui.main import app
-                host = webui_cfg.get("host", "0.0.0.0")
-                port = int(webui_cfg.get("port", 8080))
-                log.info(f"Starting web UI server on {host}:{port}")
-                uvicorn.run(app, host=host, port=port, log_level="warning")
-            except Exception as e:
-                log.warning(f"Web UI server failed to start: {e}")
-
-        t = threading.Thread(target=start_webui, daemon=True)
-        t.start()
-        webui_started = True
-
-    if mcp_cfg.get("enabled", True):
-        def start_mcp():
-            import uvicorn
-            try:
-                from webui.mcp import mcp_app
-                from fastapi import FastAPI
-                mcp_server = FastAPI()
-                mcp_server.include_router(mcp_app)
-                host = mcp_cfg.get("host", "0.0.0.0")
-                port = int(mcp_cfg.get("port", 9090))
-                log.info(f"Starting MCP server on {host}:{port}")
-                uvicorn.run(mcp_server, host=host, port=port, log_level="warning")
-            except Exception as e:
-                log.warning(f"MCP server failed to start: {e}")
-
-        t = threading.Thread(target=start_mcp, daemon=True)
-        t.start()
-        mcp_started = True
-
-    if webui_started or mcp_started:
-        import time
-        time.sleep(0.5)
+    emit_json("summary", library_count=len(library_names), files_total=len(unique_files),
+              ok=ok, skip=skip, fail=fail, space_saved_mb=round(space_saved_mb, 2),
+              elapsed=round(elapsed, 2))
 
 
 if __name__ == "__main__":
@@ -2355,7 +2668,7 @@ Modes:
     parser.add_argument("--exclude", default="", help="Comma-separated directory names to skip")
     parser.add_argument("--ignore-path", action="append", default=[], help="Skip paths containing this substring (repeatable, e.g. --ignore-path media1t)")
     parser.add_argument("--cleanup-tmp", action="store_true", help="Clean temp files before discovery")
-    parser.add_argument("--use", default="nvidia", help="Transcoder profile or ffmpeg encoder name")
+    parser.add_argument("--use", default="", help="Transcoder profile or ffmpeg encoder name")
     parser.add_argument("-j", "--workers", type=int, default=1, help="Number of files to process concurrently")
     parser.add_argument("--verbose", action="store_true", help="More logs (debug)")
     parser.add_argument("--all", action="store_true", help="Convert all libraries defined in config.yml")
@@ -2367,32 +2680,14 @@ Modes:
     parser.add_argument("--min-savings", type=int, default=0, help="Minimum savings percent to keep converted file (default: 0 = disabled)")
     parser.add_argument("--keep-original", action="store_true", help="Keep a backup of the original file before replacing it")
     parser.add_argument("--stats", action="store_true", help="Show conversion history from size-report.csv")
-    parser.add_argument("--webui-only", action="store_true", help="Start web UI server only (no conversion)")
-    parser.add_argument("--mcp-only", action="store_true", help="Start MCP server only (no conversion)")
+    parser.add_argument("--json", action="store_true", help="Output structured JSON lines for web UI")
     args = parser.parse_args()
+
+    if args.json:
+        JSON_MODE = True
 
     if args.stats:
         show_stats()
-        raise SystemExit(0)
-
-    if args.webui_only or args.mcp_only:
-        import uvicorn
-        setup_logging(None, True)
-        if args.webui_only:
-            from webui.main import app
-            host = os.getenv("WEBUI_HOST", "0.0.0.0")
-            port = int(os.getenv("WEBUI_PORT", "8080"))
-            log.info(f"Starting web UI server on {host}:{port}")
-            uvicorn.run(app, host=host, port=port, log_level="info")
-        if args.mcp_only:
-            from webui.mcp import mcp_app
-            from fastapi import FastAPI
-            mcp_server = FastAPI()
-            mcp_server.include_router(mcp_app)
-            host = os.getenv("MCP_HOST", "0.0.0.0")
-            port = int(os.getenv("MCP_PORT", "9090"))
-            log.info(f"Starting MCP server on {host}:{port}")
-            uvicorn.run(mcp_server, host=host, port=port, log_level="info")
         raise SystemExit(0)
 
     log_path = Path(args.log_file).expanduser().resolve() if args.log_file else None
@@ -2427,13 +2722,11 @@ Modes:
         log.error("FATAL: ffmpeg/ffprobe not found in PATH")
         raise SystemExit(1)
 
-    ok, err = resolve_transcoder(args.use)
-    if not ok:
-        log.error(f"FATAL: {err}")
-        raise SystemExit(1)
-
-    if not args.stats:
-        maybe_launch_servers()
+    if args.use:
+        ok, err = resolve_transcoder(args.use)
+        if not ok:
+            log.error(f"FATAL: {err}")
+            raise SystemExit(1)
 
     startup_log_path = str(log_path)
 

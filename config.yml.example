@@ -12,7 +12,6 @@ libraries:
       - ja
       - hi
       - hin
-    keep_subtitles: true
     minimum_savings_percent: 10
 
   - name: TV Shows
@@ -28,7 +27,6 @@ libraries:
       - ja
       - hi
       - hin
-    keep_subtitles: true
     minimum_savings_percent: 10
 
   - name: Movies
@@ -44,7 +42,6 @@ libraries:
       - ja
       - hi
       - hin
-    keep_subtitles: true
     minimum_savings_percent: 10
 
   - name: Shows HD
@@ -60,7 +57,6 @@ libraries:
       - ja
       - hi
       - hin
-    keep_subtitles: true
     minimum_savings_percent: 10
 
 webui:

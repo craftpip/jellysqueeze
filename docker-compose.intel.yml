@@ -1,0 +1,22 @@
+services:
+  media-convert:
+    build:
+      context: .
+      dockerfile: Dockerfile.intel
+    image: media-convert-for-jellyfin:intel
+    container_name: media-convert-intel
+    restart: unless-stopped
+    ports:
+      - "${WEBUI_PORT:-8080}:8080"
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "109"
+    environment:
+      - LIBVA_DRIVER_NAME=iHD
+    env_file:
+      - .env
+    volumes:
+      - "${PWD}/config.yml:/app/config.yml:ro"
+      - "${PWD}/.env:/app/.env"
+      - "${PWD}/var:/app/var"

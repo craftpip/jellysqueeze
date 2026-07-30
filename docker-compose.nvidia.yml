@@ -1,0 +1,20 @@
+services:
+  media-convert:
+    build:
+      context: .
+      dockerfile: Dockerfile.nvidia
+    image: media-convert-for-jellyfin:nvidia
+    container_name: media-convert-nvidia
+    restart: unless-stopped
+    ports:
+      - "${WEBUI_PORT:-8080}:8080"
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    env_file:
+      - .env
+    volumes:
+      - "${PWD}/config.yml:/app/config.yml:ro"
+      - "${PWD}/.env:/app/.env"
+      - "${PWD}/var:/app/var"
