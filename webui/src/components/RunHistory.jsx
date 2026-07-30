@@ -20,13 +20,15 @@ export default function RunHistory() {
   if (loading) return <div className="loading-overlay" style={{ position: 'relative', height: 200 }}><div className="spinner"></div></div>
 
   return (
-    <div className="card">
-      <h3>All Runs</h3>
+    <>
+      <div className="dash-header">
+        <h2>Run History</h2>
+      </div>
       {error && <div className="error-message">{error}</div>}
       {!runs.length ? (
         <div className="empty">No runs yet.</div>
       ) : (
-        <table><thead><tr><th>Date</th><th>Library</th><th>OK</th><th>Skip</th><th>Fail</th><th>Saved</th><th>Status</th><th></th></tr></thead><tbody>
+        <table className="libs-table"><thead><tr><th>Date</th><th>Library</th><th>OK</th><th>Skip</th><th>Fail</th><th>Saved</th><th>Status</th><th></th></tr></thead><tbody>
           {runs.map(r => {
             const s = r.summary || {}
             const running = r.running
@@ -46,20 +48,20 @@ export default function RunHistory() {
               status = String(r.exit_code); statusClass = 'fail'
             }
             return (
-              <tr key={r.run_id} className={running ? 'row-running' : ''}>
-                <td>{date}</td>
+              <tr key={r.run_id} className={running ? 'row-running' : ''} onClick={() => navigate('/run-detail/' + r.run_id)} style={{cursor:'pointer'}}>
+                <td><span className="mono">{date}</span></td>
                 <td>{r.library || '—'}</td>
-                <td>{s.ok || 0}</td>
-                <td>{s.skip || 0}</td>
-                <td>{s.fail || 0}</td>
-                <td>{saved}</td>
+                <td><span className="mono ok">{s.ok || 0}</span></td>
+                <td><span className="mono skip">{s.skip || 0}</span></td>
+                <td><span className="mono fail">{s.fail || 0}</span></td>
+                <td><span className="mono">{saved}</span></td>
                 <td><span className={'tag ' + statusClass}>{status}</span></td>
-                <td><button className="btn outline sm" onClick={() => navigate('/run-detail/' + r.run_id)}>View</button></td>
+                <td className="cell-actions"><button className="btn outline sm" onClick={e => { e.stopPropagation(); navigate('/run-detail/' + r.run_id) }}>View</button></td>
               </tr>
             )
           })}
         </tbody></table>
       )}
-    </div>
+    </>
   )
 }

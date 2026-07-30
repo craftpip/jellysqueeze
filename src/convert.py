@@ -57,7 +57,12 @@ ALLOWED_AUDIO_LANGS = {
     "hin", "hi", "hindi",
 }
 ALLOWED_SUBTITLE_LANGS: set[str] | None = None  # None = use ALLOWED_AUDIO_LANGS
-BACKUP_ORIGINALS = False
+BACKUP_ORIGINALS = os.getenv("BACKUP_ORIGINALS", "0") == "1"
+DEFAULT_WORKERS = int(os.getenv("DEFAULT_WORKERS", "1"))
+DEFAULT_EXCLUDE_PATTERNS = os.getenv("DEFAULT_EXCLUDE", "")
+DEFAULT_IGNORE_PATH = os.getenv("DEFAULT_IGNORE_PATH", "")
+CLEANUP_TMP = os.getenv("CLEANUP_TMP", "0") == "1"
+
 
 # Codecs supported by each profile's hardware decoder (common codecs across most GPUs)
 CUDA_DECODABLE_CODECS = {"h264", "hevc", "vp9", "mpeg1video", "mpeg2video", "vc1"}
@@ -473,12 +478,10 @@ def save_env(overrides: dict[str, str]) -> bool:
         for k, v in overrides.items():
             if k not in seen_keys:
                 lines.append(f"{k}={v}")
-        tmp_file = ENV_FILE.with_name(f".{ENV_FILE.name}.tmp")
-        with tmp_file.open("w", encoding="utf-8") as f:
+        with ENV_FILE.open("w", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp_file, ENV_FILE)
         return True
     except Exception as e:
         log.warning(f"Failed to save .env: {e}")
@@ -2672,11 +2675,11 @@ Modes:
     parser.add_argument("--remote", default="", help="Remote target: user@host:/path")
     parser.add_argument("--local-tmp", default="", help="Local temp dir for remote mode")
     parser.add_argument("--log-file", default="", help="Path to log file (optional)")
-    parser.add_argument("--exclude", default="", help="Comma-separated directory names to skip")
+    parser.add_argument("--exclude", default=DEFAULT_EXCLUDE_PATTERNS, help="Comma-separated directory names to skip")
     parser.add_argument("--ignore-path", action="append", default=[], help="Skip paths containing this substring (repeatable, e.g. --ignore-path media1t)")
-    parser.add_argument("--cleanup-tmp", action="store_true", help="Clean temp files before discovery")
+    parser.add_argument("--cleanup-tmp", action="store_true", default=CLEANUP_TMP, help="Clean temp files before discovery")
     parser.add_argument("--use", default="", help="Transcoder profile or ffmpeg encoder name")
-    parser.add_argument("-j", "--workers", type=int, default=1, help="Number of files to process concurrently")
+    parser.add_argument("-j", "--workers", type=int, default=DEFAULT_WORKERS, help="Number of files to process concurrently")
     parser.add_argument("--verbose", action="store_true", help="More logs (debug)")
     parser.add_argument("--all", action="store_true", help="Convert all libraries defined in config.yml")
     parser.add_argument("--library", default="", help="Convert one library defined in config.yml")
@@ -2685,7 +2688,7 @@ Modes:
     parser.add_argument("--since-hours", type=int, default=72, help="Hours back for recent items (default: 72)")
     parser.add_argument("--dry-run", action="store_true", help="Preview what would be done without modifying files")
     parser.add_argument("--min-savings", type=int, default=0, help="Minimum savings percent to keep converted file (default: 0 = disabled)")
-    parser.add_argument("--keep-original", action="store_true", help="Keep a backup of the original file before replacing it")
+    parser.add_argument("--keep-original", action="store_true", default=BACKUP_ORIGINALS, help="Keep a backup of the original file before replacing it")
     parser.add_argument("--stats", action="store_true", help="Show conversion history from size-report.csv")
     parser.add_argument("--json", action="store_true", help="Output structured JSON lines for web UI")
     args = parser.parse_args()
@@ -2700,6 +2703,11 @@ Modes:
     log_path = Path(args.log_file).expanduser().resolve() if args.log_file else None
     min_savings_pct = args.min_savings if args.min_savings is not None else DEFAULT_MIN_SAVINGS_PCT
     ignore_paths: list[str] = args.ignore_path or []
+    if DEFAULT_IGNORE_PATH:
+        for part in DEFAULT_IGNORE_PATH.split(","):
+            p = part.strip()
+            if p and p not in ignore_paths:
+                ignore_paths.append(p)
     BACKUP_ORIGINALS = args.keep_original
 
     # Determine mode for auto log path

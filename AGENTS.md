@@ -456,6 +456,8 @@ Fallback attempts cover: GPU decode failures, unsupported subtitle streams, cove
 
 - During an active investigation, continue through evidence gathering, fixes, and verification without routine progress questions. Keep `plans/live-run-investigation.md` updated with relevant user observations, evidence, changes, and test results. Interrupt only for a destructive or irreversible action not already approved.
 - During development, application correctness takes priority over preserving active conversions. Do not treat an in-progress conversion as a reason to defer deployment; conversion work resumes after the application is complete.
+- Run History page: prefer table view (no card toggle). No bulk delete — history is read-only.
+- Plan files live in `plans/` dir as `<topic>.md`. Use them to capture agreed scoping before coding.
 
 ## Testing
 

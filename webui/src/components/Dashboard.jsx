@@ -57,14 +57,6 @@ export default function Dashboard() {
 
   const savedGb = ((stats.total_saved_mb || 0) / 1024).toFixed(2)
 
-  const runAll = async () => {
-    try {
-      const data = await api('POST', '/api/run', { mode: 'all', flags: {} })
-      navigate('/run-detail/' + data.run_id)
-    } catch (err) {
-      setError(err.message)
-    }
-  }
 
   const runLib = async (e, name) => {
     e.stopPropagation()
@@ -124,10 +116,9 @@ export default function Dashboard() {
             <h2>Libraries</h2>
             <div className="dash-actions">
               <button className="link-btn" onClick={() => navigate('/new-library')}>+ New Library</button>
-              <button className="link-btn primary" onClick={runAll}>Run All</button>
             </div>
           </div>
-          <table className="libs-table"><thead><tr><th>Name</th><th>Status</th><th>Encoder</th><th>Bitrate</th><th>Saved</th><th></th></tr></thead><tbody>
+          <table className="libs-table"><thead><tr><th>Name</th><th>Last Run</th><th>Encoder</th><th>Bitrate</th><th>OK</th><th>Skip</th><th>Fail</th><th>Saved</th><th></th></tr></thead><tbody>
             {libs.map(lib => {
               const p = lib.profile || {}
               const saved = lib.total_saved_mb > 0 ? (lib.total_saved_mb / 1024).toFixed(2) + ' GB' : '-'
@@ -135,6 +126,7 @@ export default function Dashboard() {
               const isRunning = lib.running
               const lastRun = lib.last_run ? relTime(lib.last_run) : null
               const prog = lib.active_run_id ? runProgress[lib.active_run_id] : null
+              const summary = lib.last_run_summary || {}
               return (
                 <tr key={lib.name} className={'clickable' + (isRunning ? ' row-running' : '')} onClick={() => openLibrary(lib.name)}>
                   <td><span className="lib-name">{lib.name}</span></td>
@@ -156,9 +148,12 @@ export default function Dashboard() {
                   </td>
                   <td><span className="mono">{enc}</span></td>
                   <td><span className="mono">{p.target_bitrate || '-'}k</span></td>
+                  <td><span className="mono ok">{summary.ok ?? '-'}</span></td>
+                  <td><span className="mono skip">{summary.skip ?? '-'}</span></td>
+                  <td><span className="mono fail">{summary.fail ?? '-'}</span></td>
                   <td><span className="mono">{saved}</span></td>
                   <td className="cell-actions">
-                    <button className="link-btn primary" onClick={e => runLib(e, lib.name)} disabled={isRunning}>Convert</button>
+                    <button className="link-btn primary" onClick={e => runLib(e, lib.name)} disabled={isRunning}>&#9654; Run Now</button>
                   </td>
                 </tr>
               )

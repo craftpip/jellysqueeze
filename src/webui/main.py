@@ -120,26 +120,80 @@ def api_env():
     return {
         "TARGET_BR": int(os.getenv("TARGET_BR", 3000)),
         "MAX_BR": int(os.getenv("MAX_BR", 3300)),
+        "BUFSIZE": int(os.getenv("BUFSIZE", 6000)),
         "DEFAULT_CRF": int(os.getenv("DEFAULT_CRF", 23)),
         "JELLYFIN_BASE_URL": os.getenv("JELLYFIN_BASE_URL", ""),
+        "DEFAULT_WORKERS": int(os.getenv("DEFAULT_WORKERS", "1")),
+        "DEFAULT_EXCLUDE": os.getenv("DEFAULT_EXCLUDE", ""),
+        "DEFAULT_IGNORE_PATH": os.getenv("DEFAULT_IGNORE_PATH", ""),
+        "CLEANUP_TMP": os.getenv("CLEANUP_TMP", "0") == "1",
+        "BACKUP_ORIGINALS": os.getenv("BACKUP_ORIGINALS", "0") == "1",
+        "FFMPEG_BIN": os.getenv("FFMPEG_BIN", ""),
+        "FFPROBE_BIN": os.getenv("FFPROBE_BIN", ""),
     }
 
 
 @app.post("/api/env")
 async def api_env_update(body: dict):
     overrides = {}
-    for key in ("TARGET_BR", "MAX_BR", "DEFAULT_CRF", "JELLYFIN_BASE_URL", "JELLYFIN_API_KEY"):
+    accepted = (
+        "TARGET_BR", "MAX_BR", "BUFSIZE", "DEFAULT_CRF",
+        "JELLYFIN_BASE_URL", "JELLYFIN_API_KEY",
+        "DEFAULT_WORKERS",
+        "DEFAULT_EXCLUDE", "DEFAULT_IGNORE_PATH",
+        "CLEANUP_TMP", "BACKUP_ORIGINALS",
+        "FFMPEG_BIN", "FFPROBE_BIN",
+    )
+    for key in accepted:
         if key in body:
             overrides[key] = str(body[key])
+    int_keys = ("TARGET_BR", "MAX_BR", "BUFSIZE", "DEFAULT_CRF", "DEFAULT_WORKERS")
     try:
-        for key in ("TARGET_BR", "MAX_BR", "DEFAULT_CRF"):
+        for key in int_keys:
             if key in overrides:
                 int(overrides[key])
     except ValueError:
-        raise HTTPException(status_code=422, detail="Bitrate and CRF settings must be integers")
+        raise HTTPException(status_code=422, detail=f"{key} must be an integer")
     if not conv.save_env(overrides):
         raise HTTPException(status_code=500, detail="Failed to write .env")
     return {"saved": True}
+
+
+@app.post("/api/test-jellyfin")
+async def api_test_jellyfin(body: dict):
+    url = body.get("url", "").strip() or os.getenv("JELLYFIN_BASE_URL", "").strip()
+    key = body.get("key", "").strip() or os.getenv("JELLYFIN_API_KEY", "").strip()
+    if not url:
+        return {"ok": False, "message": "Jellyfin URL is not set"}
+    if not key:
+        return {"ok": False, "message": "Jellyfin API Key is not set"}
+    try:
+        from jellyfin_client import JellyfinClient
+        client = JellyfinClient(url, key)
+        libs = client.list_libraries()
+        client.close()
+        return {"ok": True, "message": f"Connected — {len(libs)} libraries found"}
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+
+
+@app.get("/api/system-info")
+def api_system_info():
+    conv.resolve_ffmpeg_tools()
+    encoders = sorted(conv.get_available_encoders())
+    gpu_status = {}
+    for profile in ("nvidia", "intel", "amdgpu", "cpu"):
+        gpu_status[profile] = conv.device_available(profile)
+    config = conv.load_config()
+    return {
+        "ffmpeg_path": conv.FFMPEG_CMD,
+        "ffprobe_path": conv.FFPROBE_CMD,
+        "encoders": [e for e in encoders if any(x in e for x in ("264", "265", "av1", "vp9"))][:20],
+        "gpu": gpu_status,
+        "config_found": config is not None,
+        "env_path": str(conv.ENV_FILE),
+        "config_path": str(conv.CONFIG_FILE),
+    }
 
 
 # ── Libraries CRUD ──────────────────────────────────────────────────────────
@@ -168,6 +222,7 @@ def api_list_libraries():
             "profile": lib,
             "last_run": last_run["ended_at"] if last_run else None,
             "last_run_id": last_run["run_id"] if last_run else None,
+            "last_run_summary": last_run.get("summary") if last_run else None,
             "total_saved_mb": round(total_saved, 2),
             "run_count": len(lib_runs),
             "running": name in active,
@@ -358,6 +413,11 @@ def api_get_run(run_id: str):
     if not run:
         raise HTTPException(status_code=404, detail="run not found")
     return run
+
+
+@app.get("/api/errors")
+def api_errors():
+    return {"errors": state_db.list_errors()}
 
 
 # ── Stats ───────────────────────────────────────────────────────────────────

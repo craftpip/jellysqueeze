@@ -1,6 +1,23 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useParams, useOutletContext } from 'react-router-dom'
 import { api } from '../api'
+
+const s = {
+  section: { marginBottom: 28 },
+  h3: { fontSize: 11, fontWeight: 600, color: '#666', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 14, paddingBottom: 6, borderBottom: '1px solid #2a2a2a' },
+}
+
+const Hint = ({ children }) => (
+  <span style={{ display: 'block', fontSize: 11, color: '#555', lineHeight: 1.3, marginTop: 2 }}>{children}</span>
+)
+
+const encoderHints = {
+  nvidia: 'NVIDIA GPU with NVENC — best performance on supported hardware',
+  intel: 'Intel Quick Sync Video — integrated GPU encoder',
+  vaapi: 'VA-API — AMD/Intel open-source driver',
+  amdgpu: 'AMD AMF — experimental, Linux support limited',
+  cpu: 'libx264 — software encode, highest quality, slower',
+}
 
 export default function LibraryForm() {
   const { setPageTitle } = useOutletContext()
@@ -16,9 +33,12 @@ export default function LibraryForm() {
   })
   const [paths, setPaths] = useState([])
   const [newPath, setNewPath] = useState('')
+  const [pathStatus, setPathStatus] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')
+  const pathTimer = useRef(null)
 
   useEffect(() => {
     if (!isEdit) { setLoaded(true); return }
@@ -39,6 +59,21 @@ export default function LibraryForm() {
   }, [name, navigate])
 
   const set = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }))
+
+  const onPathChange = (e) => {
+    const val = e.target.value
+    setNewPath(val)
+    if (pathTimer.current) clearTimeout(pathTimer.current)
+    if (!val.trim()) { setPathStatus(null); return }
+    setPathStatus('checking')
+    pathTimer.current = setTimeout(async () => {
+      try {
+        const res = await api('GET', '/api/validate-path?path=' + encodeURIComponent(val.trim()))
+        setPathStatus(res.valid && res.is_dir ? 'valid' : 'invalid')
+      } catch { setPathStatus(null) }
+    }, 400)
+  }
+
   const addPath = async () => {
     const p = newPath.trim()
     if (!p) return
@@ -46,6 +81,7 @@ export default function LibraryForm() {
       const res = await api('GET', '/api/validate-path?path=' + encodeURIComponent(p))
       setPaths(prev => [...prev, { path: p, valid: res.valid && res.is_dir }])
       setNewPath('')
+      setPathStatus(null)
     } catch (err) {
       setError(err.message)
     }
@@ -78,8 +114,11 @@ export default function LibraryForm() {
       } else {
         await api('POST', '/api/libraries', body)
       }
-      const savedName = body.name || name
-      navigate('/library-detail/' + encodeURIComponent(savedName))
+      setSaved(true)
+      setTimeout(() => {
+        const savedName = body.name || name
+        navigate('/library-detail/' + encodeURIComponent(savedName))
+      }, 600)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -89,74 +128,143 @@ export default function LibraryForm() {
 
   if (!loaded) return <div className="loading-overlay" style={{ position: 'relative', height: 200 }}><div className="spinner"></div></div>
 
+  const encLabel = form.encoder === 'nvidia' ? 'NVIDIA NVENC'
+    : form.encoder === 'intel' ? 'Intel QSV'
+    : form.encoder === 'vaapi' ? 'VA-API'
+    : form.encoder === 'amdgpu' ? 'AMD AMF'
+    : 'libx264'
+
+  const targetBr = form.target_bitrate || 3000
+  const maxBr = form.max_bitrate || 3300
+
   return (
-    <div className="card">
-      <h3>{isEdit ? 'Edit Library: ' + name : 'New Library'}</h3>
-      {error && <div className="error-message">{error}</div>}
-      <form onSubmit={submit}>
-        <div className="form-row">
-          <div className="field">
-            <label>Library Name</label>
-            <input type="text" value={form.name} onChange={set('name')} required />
-          </div>
-          <div className="field">
-            <label>Encoder</label>
-            <select value={form.encoder} onChange={set('encoder')}>
-              <option value="nvidia">NVIDIA (NVENC)</option>
-              <option value="intel">Intel (QSV)</option>
-              <option value="vaapi">VAAPI</option>
-              <option value="amdgpu">AMD (AMF)</option>
-              <option value="cpu">CPU (libx264)</option>
-            </select>
-          </div>
-        </div>
-        <div className="form-row">
-          <div className="field">
-            <label>Target bitrate (kbps)</label>
-            <input type="number" value={form.target_bitrate} onChange={set('target_bitrate')} placeholder="3000" />
-          </div>
-          <div className="field">
-            <label>Max bitrate (kbps)</label>
-            <input type="number" value={form.max_bitrate} onChange={set('max_bitrate')} placeholder="4500" />
-          </div>
-          <div className="field">
-            <label>Min savings %</label>
-            <input type="number" value={form.minimum_savings_percent} onChange={set('minimum_savings_percent')} min="0" />
-          </div>
-        </div>
-        <div className="form-row">
-          <div className="field">
-            <label>Keep audio languages (comma-sep)</label>
-            <input type="text" value={form.keep_audio_langs} onChange={set('keep_audio_langs')} />
-          </div>
-          <div className="field">
-            <label>Keep subtitle languages</label>
-            <input type="text" value={form.keep_subtitle_langs} onChange={set('keep_subtitle_langs')} />
-          </div>
-        </div>
-        <div className="form-row">
-          <div className="field" style={{ flex: 2 }}>
-            <label>Media folders</label>
-            <div className="path-list">
-              {paths.map((p, i) => (
-                <div className="path-item" key={i}>
-                  <span className={p.valid ? 'check' : 'cross'}>{p.valid ? '\u2713' : '\u2717'}</span>
-                  {p.path}
-                  <span className="remove" onClick={() => removePath(i)}>&#10005;</span>
-                </div>
-              ))}
+    <form onSubmit={submit} style={{ display: 'flex', gap: 28, alignItems: 'flex-start' }}>
+      <div style={{ flex: 3, minWidth: 0 }}>
+        <button className="link-btn" style={{ marginBottom: 20 }} onClick={() => navigate(isEdit ? '/library-detail/' + encodeURIComponent(name) : '/')}>&#8592; Back</button>
+        {error && <div className="error-message">{error}</div>}
+        {saved && <div className="error-message" style={{ borderColor: '#1a3a1a', background: '#1a3a1a', color: '#33ff33' }}>Saved! Redirecting...</div>}
+
+        <div style={s.section}>
+          <h3 style={s.h3}>General</h3>
+          <div className="form-row">
+            <div className="field">
+              <label>Library Name</label>
+              <input type="text" value={form.name} onChange={set('name')} required />
+              <Hint>Visible in the library list and used for library scans</Hint>
             </div>
-            <div className="flex gap-8 mt-8">
-              <input type="text" value={newPath} onChange={e => setNewPath(e.target.value)} placeholder="/path/to/media" style={{ flex: 1, fontSize: 13, padding: '7px 10px', border: '1px solid #444', borderRadius: 4, background: '#2a2a2a', color: '#e0e0e0', outline: 'none' }} />
-              <button type="button" className="btn outline" onClick={addPath}>Add</button>
+            <div className="field">
+              <label>Encoder</label>
+              <select value={form.encoder} onChange={set('encoder')}>
+                <option value="nvidia">NVIDIA (NVENC)</option>
+                <option value="intel">Intel (QSV)</option>
+                <option value="vaapi">VAAPI</option>
+                <option value="amdgpu">AMD (AMF)</option>
+                <option value="cpu">CPU (libx264)</option>
+              </select>
+              <Hint>{encoderHints[form.encoder]}</Hint>
             </div>
           </div>
         </div>
-        <div className="flex gap-8 mt-8">
-          <button type="submit" className={`btn primary${saving ? ' loading' : ''}`} disabled={saving}>{isEdit ? 'Save Changes' : 'Create Library'}</button>
+
+        <div style={s.section}>
+          <h3 style={s.h3}>Conversion Settings</h3>
+          <div className="form-row">
+            <div className="field">
+              <label>Target bitrate (kbps)</label>
+              <input type="number" value={form.target_bitrate} onChange={set('target_bitrate')} placeholder="3000" />
+              <Hint>Re-encode to this bitrate. Default: 3000 kbps</Hint>
+            </div>
+            <div className="field">
+              <label>Max bitrate (kbps)</label>
+              <input type="number" value={form.max_bitrate} onChange={set('max_bitrate')} placeholder="3300" />
+              <Hint>Only convert files above this bitrate. Default: 3300 kbps</Hint>
+            </div>
+            <div className="field">
+              <label>Min savings %</label>
+              <input type="number" value={form.minimum_savings_percent} onChange={set('minimum_savings_percent')} min="0" placeholder="10" />
+              <Hint>Skip conversion if savings are below this. Default: 10%</Hint>
+            </div>
+          </div>
+        </div>
+
+        <div style={s.section}>
+          <h3 style={s.h3}>Language Filters</h3>
+          <div className="form-row">
+            <div className="field">
+              <label>Keep audio languages</label>
+              <input type="text" value={form.keep_audio_langs} onChange={set('keep_audio_langs')} />
+              <Hint>Comma-separated language codes to keep. Default: eng,en,jpn,ja,hin,hi</Hint>
+            </div>
+            <div className="field">
+              <label>Keep subtitle languages</label>
+              <input type="text" value={form.keep_subtitle_langs} onChange={set('keep_subtitle_langs')} />
+              <Hint>Comma-separated language codes to keep. Default: eng,en,jpn,ja</Hint>
+            </div>
+          </div>
+        </div>
+
+        <div style={s.section}>
+          <h3 style={s.h3}>Media Paths</h3>
+          <div className="form-row">
+            <div className="field" style={{ flex: 2 }}>
+              <div className="path-list" style={{ marginBottom: 8 }}>
+                {paths.map((p, i) => (
+                  <div className="path-item" key={i}>
+                    <span className={p.valid ? 'check' : 'cross'}>{p.valid ? '\u2713' : '\u2717'}</span>
+                    {p.path}
+                    <span className="remove" onClick={() => removePath(i)}>&#10005;</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-8" style={{ alignItems: 'center' }}>
+                <input type="text" value={newPath} onChange={onPathChange} placeholder="/path/to/media" style={{ flex: 1 }} />
+                {pathStatus === 'checking' && <span className="text-muted" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>checking...</span>}
+                {pathStatus === 'valid' && <span style={{ color: '#33ff33', fontSize: 12, whiteSpace: 'nowrap' }}>&#10003; exists</span>}
+                {pathStatus === 'invalid' && <span style={{ color: '#e05050', fontSize: 12, whiteSpace: 'nowrap' }}>&#10007; not found</span>}
+                <button type="button" className="btn outline" onClick={addPath}>Add</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 28, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button type="submit" className={`btn primary${saving ? ' loading' : ''}`} disabled={saving || saved}>
+            {isEdit ? 'Save Changes' : 'Create Library'}
+          </button>
+          {saved && <span style={{ color: '#33ff33', fontSize: 12 }}>Saved</span>}
           <button type="button" className="btn outline" onClick={() => navigate('/')}>Cancel</button>
         </div>
-      </form>
-    </div>
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={s.section}>
+          <h3 style={s.h3}>Summary</h3>
+          <div className="detail-row">
+            <span className="label">Encoder</span>
+            <span className="value" style={{ fontFamily: 'monospace', fontSize: 12 }}>{encLabel}</span>
+          </div>
+          <div className="detail-row">
+            <span className="label">Target</span>
+            <span className="value" style={{ fontFamily: 'monospace', fontSize: 12 }}>{targetBr} kbps</span>
+          </div>
+          <div className="detail-row">
+            <span className="label">Max before convert</span>
+            <span className="value" style={{ fontFamily: 'monospace', fontSize: 12 }}>{maxBr} kbps</span>
+          </div>
+          <div className="detail-row">
+            <span className="label">Min savings</span>
+            <span className="value" style={{ fontFamily: 'monospace', fontSize: 12 }}>{form.minimum_savings_percent}%</span>
+          </div>
+          <div className="detail-row">
+            <span className="label">Media folders</span>
+            <span className="value" style={{ fontFamily: 'monospace', fontSize: 12 }}>{paths.length}</span>
+          </div>
+          <div className="detail-row">
+            <span className="label">Acceleration</span>
+            <span className="value" style={{ fontFamily: 'monospace', fontSize: 12 }}>{form.encoder !== 'cpu' ? 'Hardware' : 'Software'}</span>
+          </div>
+        </div>
+      </div>
+    </form>
   )
 }

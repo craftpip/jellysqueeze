@@ -30,7 +30,7 @@ export default function RunDetail() {
   const [endedAt, setEndedAt] = useState(null)
   const [exitCode, setExitCode] = useState(null)
   const [activeProgress, setActiveProgress] = useState({})
-  const [resultFilter, setResultFilter] = useState('done-failed')
+  const [filterChecks, setFilterChecks] = useState({ done: true, failed: true, skipped: false })
   const [folderTotals, setFolderTotals] = useState({})
   const [runStatus, setRunStatus] = useState({ phase: '', message: '' })
   const [error, setError] = useState('')
@@ -201,11 +201,10 @@ export default function RunDetail() {
   const runTotal = Object.values(folderTotals).reduce((sum, total) => sum + total, 0)
   const runPct = runTotal > 0 ? results.length / runTotal * 100 : 0
   const visibleResults = results.filter(r => {
-    if (resultFilter === 'all') return true
-    if (resultFilter === 'done') return r.status === 'OK'
-    if (resultFilter === 'failed') return r.status === 'FAIL'
-    if (resultFilter === 'skipped') return r.status === 'SKIP'
-    return r.status === 'OK' || r.status === 'FAIL'
+    if (r.status === 'OK') return filterChecks.done
+    if (r.status === 'FAIL') return filterChecks.failed
+    if (r.status === 'SKIP') return filterChecks.skipped
+    return true
   })
 
   const activeFilePaths = activeFiles.map(([fp]) => fp)
@@ -222,22 +221,30 @@ export default function RunDetail() {
 
   return (
     <>
-      <div className="flex items-center gap-8 mb-8">
-        <button className="btn outline sm" onClick={() => navigate(-1)}>&#8592; Back</button>
-        <h3 style={{ flex: 1 }}>
-          {library || 'Run'}
-          {running ? <><span className="dot running" style={{ margin: '0 6px 0 8px', verticalAlign: 'middle' }}></span><span className="text-green">LIVE</span></> : ''}
-        </h3>
-        <button className="btn outline sm" onClick={downloadLog}>&#8615; Log</button>
-        {running ? (
-          <button className="btn danger sm" onClick={stopRun} disabled={stopping}>&#9632; Stop</button>
-        ) : null}
+      <button className="link-btn mb-8" onClick={() => navigate(-1)}>&#8592; Back</button>
+      <div className="dash-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+            {library || 'Run'}
+            {running && (
+              <span className="status-running">
+                <span className="pulse-dot"></span>LIVE
+              </span>
+            )}
+          </h2>
+          <div className="dash-actions" style={{ gap: 12 }}>
+            <button className="link-btn" onClick={downloadLog}>&#8615; Log</button>
+            {running && (
+              <button className="link-btn" style={{color:'#e05050'}} onClick={stopRun} disabled={stopping}>&#9632; Stop</button>
+            )}
+          </div>
+        </div>
       </div>
       {error && <div className="error-message">{error}</div>}
 
-      <div className="run-detail-grid" style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+      <div className="run-detail-grid" style={{ display: 'flex', gap: 16, alignItems: 'flex-start', marginBottom: 20 }}>
         <div className="run-detail-left" style={{ flex: 1, minWidth: 0 }}>
-          <div id="card-info" className="card">
+          <div id="section-info" className="detail-rows">
             <div className="detail-row"><span className="label">Library</span><span className="value">{library || '—'}</span></div>
             <div className="detail-row"><span className="label">Started</span><span className="value">{startedStr}</span></div>
             {!running && <div className="detail-row"><span className="label">Ended</span><span className="value">{endedStr}</span></div>}
@@ -250,28 +257,28 @@ export default function RunDetail() {
         </div>
         <div className="run-detail-right" style={{ flex: 1, minWidth: 0 }}>
           {running && runTotal > 0 && (
-            <div id="card-run-progress" className="card" style={{ padding: '10px 16px' }}>
-              <div className="flex items-center gap-8" style={{ marginBottom: 6 }}>
-                <span className="text-muted" style={{ fontSize: 12, minWidth: 82 }}>Run Progress</span>
-                <span className="text-muted" style={{ flex: 1, fontSize: 12 }}>OK {okCount} / Skip {skipCount} / Fail {failCount}</span>
-                <span className="text-muted" style={{ fontSize: 12, minWidth: 150, textAlign: 'right' }}>{results.length} / {runTotal} ({runPct.toFixed(1)}%)</span>
+            <div id="section-run-progress" style={{ marginBottom: 16 }}>
+              <div className="flex items-center gap-8">
+                <span className="text-muted" style={{ minWidth: 82 }}>Run Progress</span>
+                <span className="text-muted" style={{ flex: 1 }}>OK {okCount} / Skip {skipCount} / Fail {failCount}</span>
+                <span className="text-muted" style={{ minWidth: 150, textAlign: 'right' }}>{results.length} / {runTotal} ({runPct.toFixed(1)}%)</span>
               </div>
-              <div style={{ height: 6, background: '#2a2a2a', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ height: 6, background: '#2a2a2a', borderRadius: 3, overflow: 'hidden', marginTop: 6 }}>
                 <div style={{ height: '100%', width: runPct + '%', background: '#66bb6a', borderRadius: 3, transition: 'width .3s ease' }}></div>
               </div>
             </div>
           )}
 
           {running && activeFiles.length > 0 && (
-            <div id="card-encoding-progress" className="card" style={{ padding: '10px 16px' }}>
+            <div id="section-encoding-progress" style={{ marginBottom: 16 }}>
               {activeFiles.map(([file, progress], index) => {
                 const fileName = file.split(/[\\/]/).pop()
                 return (
                   <div key={file} style={{ marginTop: index ? 10 : 0 }}>
                     <div className="flex items-center gap-8" style={{ marginBottom: 6 }}>
-                      <span className="text-muted" style={{ fontSize: 12, minWidth: 50 }}>{progress.finalizing ? 'Finalizing' : 'Encoding'}</span>
-                      <span className="file" title={file} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#ccc' }}>{fileName}</span>
-                      <span className="text-muted" style={{ fontSize: 12, minWidth: 140, textAlign: 'right' }}>
+                      <span className="text-muted" style={{ minWidth: 50 }}>{progress.finalizing ? 'Finalizing' : 'Encoding'}</span>
+                      <span className="file-ellipsis" title={file}>{fileName}</span>
+                      <span className="text-muted" style={{ minWidth: 140, textAlign: 'right' }}>
                         {progress.finalizing
                           ? ''
                           : (progress.positionSeconds != null && progress.durationSeconds
@@ -291,15 +298,15 @@ export default function RunDetail() {
           )}
 
           {running && activeFiles.length === 0 && runStatus.message && (
-            <div id="card-run-status" className="card" style={{ padding: '8px 16px', fontSize: 13, color: '#999' }}>
+            <div id="section-run-status" className="text-muted" style={{ marginBottom: 16 }}>
               {runStatus.message}
             </div>
           )}
 
           {running && folderEntries.length > 1 && (
-            <div id="card-directory-progress" className="card" style={{ padding: '10px 16px' }}>
+            <div id="section-directory-progress" style={{ marginBottom: 16 }}>
               <div className="flex items-center gap-8" style={{ marginBottom: 8 }}>
-                <span className="text-muted" style={{ fontSize: 12 }}>Directory Progress</span>
+                <span className="text-muted">Directory Progress</span>
               </div>
               {folderEntries.map(({ root, total, done, status }) => {
                 const pct = total > 0 ? done / total * 100 : 0
@@ -310,8 +317,8 @@ export default function RunDetail() {
                       <span className={'tag ' + status} style={{ minWidth: 100, textAlign: 'center' }}>
                         {status === 'active' ? 'Encoding' : status === 'complete' ? 'Done' : 'Pending'}
                       </span>
-                      <span className="file" title={root} style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: '#ccc' }}>{label}</span>
-                      <span className="text-muted" style={{ fontSize: 12, minWidth: 100, textAlign: 'right' }}>{done} / {total}</span>
+                      <span className="file-ellipsis" title={root}>{label}</span>
+                      <span className="text-muted" style={{ minWidth: 100, textAlign: 'right' }}>{done} / {total}</span>
                     </div>
                     <div style={{ height: 4, background: '#2a2a2a', borderRadius: 2, overflow: 'hidden' }}>
                       <div style={{ height: '100%', width: pct + '%', borderRadius: 2, transition: 'width .3s ease',
@@ -326,25 +333,23 @@ export default function RunDetail() {
       </div>
 
       {results.length > 0 && (
-        <div id="card-processed-files" className="card">
-          <div className="flex items-center gap-8" style={{ marginBottom: 12 }}>
-            <h3 style={{ flex: 1, margin: 0 }}>Processed Files</h3>
-            <button className={'btn outline sm' + (resultFilter === 'done-failed' ? ' active' : '')} onClick={() => setResultFilter('done-failed')}>Done &amp; Failed</button>
-            <button className={'btn outline sm' + (resultFilter === 'done' ? ' active' : '')} onClick={() => setResultFilter('done')}>Done {okCount > 0 && <span className="badge">{okCount}</span>}</button>
-            <button className={'btn outline sm' + (resultFilter === 'failed' ? ' active' : '')} onClick={() => setResultFilter('failed')}>Failed {failCount > 0 && <span className="badge">{failCount}</span>}</button>
-            <button className={'btn outline sm' + (resultFilter === 'skipped' ? ' active' : '')} onClick={() => setResultFilter('skipped')}>Skipped {skipCount > 0 && <span className="badge">{skipCount}</span>}</button>
-            <button className={'btn outline sm' + (resultFilter === 'all' ? ' active' : '')} onClick={() => setResultFilter('all')}>All</button>
+        <div id="section-processed-files" style={{ marginBottom: 16 }}>
+          <div className="flex items-center gap-8 mb-8">
+            <h3 style={{ flex: 1, margin: 0, fontSize: 14, fontWeight: 600, color: '#ccc' }}>Processed Files</h3>
+            <button className={'btn outline sm' + (filterChecks.done ? ' active' : '')} onClick={() => setFilterChecks(p => ({ ...p, done: !p.done }))}>Done <span className="badge">{okCount}</span></button>
+            <button className={'btn outline sm' + (filterChecks.failed ? ' active' : '')} onClick={() => setFilterChecks(p => ({ ...p, failed: !p.failed }))}>Failed <span className="badge">{failCount}</span></button>
+            <button className={'btn outline sm' + (filterChecks.skipped ? ' active' : '')} onClick={() => setFilterChecks(p => ({ ...p, skipped: !p.skipped }))}>Skipped <span className="badge">{skipCount}</span></button>
           </div>
-          <table><thead><tr><th>Status</th><th>File</th><th>Result</th><th>Saved</th></tr></thead><tbody>
+           <table className="libs-table" style={{ tableLayout: 'fixed' }}><thead><tr><th style={{ width: 70 }}>Status</th><th>File</th><th style={{ width: 200 }}>Result</th><th style={{ width: 80 }}>Saved</th></tr></thead><tbody>
           {visibleResults.slice().reverse().map((r, i) => {
             const tag = r.status === 'OK' ? 'ok' : r.status === 'SKIP' ? 'skip' : 'fail'
             const saved2 = r.before && r.after ? ((r.before - r.after) / (1024 * 1024)).toFixed(1) + ' MB' : '—'
             return (
               <tr key={i}>
                 <td><span className={'tag ' + tag}>{r.status}</span></td>
-                <td className="file" title={r.file || ''}>{r.file || ''}</td>
+                <td className="file-ellipsis" title={r.file || ''}>{r.file || ''}</td>
                 <td className="text-muted">{r.msg || '—'}</td>
-                <td className="text-muted">{saved2}</td>
+                <td><span className="mono">{saved2}</span></td>
               </tr>
             )
           })}
@@ -353,7 +358,10 @@ export default function RunDetail() {
         </div>
       )}
 
-      <div id="card-terminal" className="run-terminal" ref={outputRef} style={{ height: 300, marginBottom: 16 }}>{lines.join('\n')}</div>
+      <div id="section-terminal-wrapper" style={{ marginTop: 20, marginBottom: 20 }}>
+        <h3 style={{ margin: '0 0 10px 0', fontSize: 14, fontWeight: 600, color: '#ccc' }}>Terminal Output</h3>
+        <div id="section-terminal" className="run-terminal" ref={outputRef} style={{ height: 300 }}>{lines.join('\n')}</div>
+      </div>
     </>
   )
 }

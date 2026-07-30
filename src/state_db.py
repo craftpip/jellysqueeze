@@ -233,6 +233,32 @@ def save_run(run: dict, conn: sqlite3.Connection | None = None) -> None:
         conn.close()
 
 
+def list_errors(limit: int = 500) -> list[dict]:
+    initialize()
+    query = """
+        SELECT r.run_id, r.library, r.started_at, r.ended_at,
+               rr.file, rr.message, rr.before_bytes, rr.after_bytes
+        FROM run_results rr
+        JOIN runs r ON r.run_id = rr.run_id
+        WHERE rr.status = 'FAIL'
+        ORDER BY COALESCE(r.ended_at, r.started_at) DESC, rr.sequence ASC
+        LIMIT ?
+    """
+    with _connect() as conn:
+        return [
+            {
+                "run_id": row["run_id"],
+                "library": row["library"],
+                "started_at": row["started_at"],
+                "file": row["file"],
+                "message": row["message"],
+                "before": row["before_bytes"],
+                "after": row["after_bytes"],
+            }
+            for row in conn.execute(query, (limit,))
+        ]
+
+
 def _run_from_row(row: sqlite3.Row) -> dict:
     return {
         "run_id": row["run_id"],

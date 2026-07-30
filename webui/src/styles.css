@@ -68,7 +68,7 @@ input[type="checkbox"]{width:16px;height:16px;accent-color:#4c9aff}
 .text-green{color:#33ff33}
 .text-red{color:#e05050}
 .w-full{width:100%}
-.run-terminal{background:#1e1e1e;color:#33ff33;font-family:'Consolas','Courier New',monospace;font-size:12px;padding:12px;border:1px solid #333;border-radius:4px;min-height:200px;max-height:400px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.4}
+.run-terminal{color:#33ff33;font-family:'Consolas','Courier New',monospace;font-size:12px;padding:12px;min-height:200px;max-height:400px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.4}
 .stats-grid{display:flex;gap:32px;padding:8px 0 20px}
 .stat-block{display:flex;flex-direction:column;gap:1px}
 .stat-block .num{font-size:24px;font-weight:700;color:#e0e0e0;line-height:1.1;letter-spacing:-.5px}
@@ -100,6 +100,9 @@ input[type="checkbox"]{width:16px;height:16px;accent-color:#4c9aff}
 .status-idle{color:#555;font-size:12px}
 
 .libs-table td .mono{font-family:'Consolas','Courier New',monospace;font-size:12px;color:#777}
+.libs-table td .mono.ok{color:#66bb6a}
+.libs-table td .mono.skip{color:#ffa726}
+.libs-table td .mono.fail{color:#e57373}
 
 .cell-actions{text-align:right;white-space:nowrap}
 .cell-actions .link-btn{margin-left:14px}
@@ -120,4 +123,5 @@ tr.row-running:hover td{background:#1e3044!important}
 .stat-box.skip{border-color:#3a3a1a;color:#cccc33}
 .stat-box.fail{border-color:#3a1a1a;color:#e05050}
 .stat-num{display:block;font-size:22px;font-weight:700;color:#fff;margin-top:2px}
-td.file{max-width:500px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+td.file,.file-ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-ellipsis{flex:1;font-size:12px;color:#ccc}
