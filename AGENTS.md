@@ -282,6 +282,74 @@ The `webui:` and `mcp:` sections in `config.yml` (`enabled`, `host`, `port`) are
 
 ## Progress Semantics
 
+### Three Progress Layers
+
+1. **Discovery progress** — `run_status(phase="scan")` + `run_folder(root, total)` per scanned directory. The web UI sums all `folderTotals` into `runTotal` for the run progress bar denominator.
+2. **Per-file encoding progress** — `progress` events every ~500ms from within `convert_if_needed()`. Carries `percent`, `finalizing`, `position_seconds`, `duration_seconds`, `frame_count`, `total_frames`.
+3. **Aggregate file-count progress** — `result` events per terminal file outcome. The web UI counts `results.length` against `runTotal` for the run progress bar numerator.
+
+### How RunDetail.jsx Processes Events
+
+**WebSocket path** (live):
+- `progress` → updates `activeProgress[file]` state → renders per-file progress bars with time/frame info
+- `run_status` → sets `runStatus` bar (shown when no active files yet — e.g. scanning phase)
+- `run_folder` → merges into `folderTotals` → `runTotal = sum(folderTotals)`
+- Non-JSON stdout/stderr lines → appended to terminal view (max 200 lines, auto-scroll)
+- `exit` → marks `running=false`, clears `activeProgress`, closes WebSocket after 500ms
+
+**HTTP polling path** (2s fallback via `setInterval`):
+- `GET /api/status/{runId}` every 2s → syncs `results`, `summary`, `startedAt`, `running`, `exit_code`, `endedAt`
+- Runs alongside WebSocket — catches state the WS might miss (e.g. if WS drops a `result` or `summary` line)
+
+### Run Progress Bar
+
+```
+runTotal = sum(folderTotals)         # sum of all run_folder totals
+runPct   = results.length / runTotal * 100
+```
+Rendered as a green bar (`#66bb6a`) with label `"OK {ok} / Skip {skip} / Fail {fail}"` and `"{results.length} / {runTotal} ({runPct}%)"`.
+
+### Per-File Encoding Progress Bar
+
+Rendered per-file in `activeFiles.map()`:
+- Label: `"Encoding"` or `"Finalizing"` (when `finalizing=true`)
+- File name: last path segment
+- Progress info (priority order):
+  1. If `position_seconds` and `duration_seconds` available: `"MM:SS / MM:SS (XX.X%)"`
+  2. If `frame_count` and `total_frames` available: `"Frame NNN / ~NNN"`
+  3. Fallback: just `"XX.X%"`
+- Blue bar (`#4c9aff`) at `progress.percent%` width with CSS transition
+
+### Per-File Progress Emission in convert.py
+
+In `convert_if_needed()` (line 1568-1656):
+- ffmpeg spawned with `-progress pipe:` and `Popen(stdout=PIPE, text=True, bufsize=1)`
+- stdout lines parsed for `out_time_us`/`out_time` → seconds against source duration → percentage
+- Some files emit `out_time = N/A` while frames still advance. After 2 consecutive N/A timestamps with no valid timestamp, falls back to `frame / estimated total frames`
+- Updates emitted at most every 500ms (`now - last_up >= 0.5`)
+- When ffmpeg reports `progress = end`, emits `finalizing=True` at 99.5%
+- After ffmpeg exits, validation, savings checks, and `safe_replace()` still run before the `result` event
+
+### Result Event Flow
+
+- `result` fields: `{file, status: "OK"|"SKIP"|"FAIL", msg, before, after}`
+- Sequential mode: emitted right after `convert_if_needed()` returns in the main for-loop (lines 1992-2021)
+- Parallel mode: `process_file()` returns a dict, emitted in `as_completed()` loop (lines 2194-2201)
+- Cache skips and already-done files also emit `result` events — they are terminal outcomes
+- `before` and `after` are byte sizes (used by web UI to compute `saved_mb`)
+
+### Summary Event
+
+At the end of `scan()` (line 2252):
+```python
+emit_json("summary", files_total=total, ok=ok, skip=skip, fail=fail, space_saved_mb=...)
+```
+Also emitted at end of `main_all()`/`main_library()`/`main_jellyfin_recent()` with `mode` and `library_count`.
+
+The `RunManager.wait()` uses either the parsed `_summary` dict or builds a `_partial_summary()` from `_results` if the process exits with non-0 or was stopped.
+
+### Important Rules
+
 - `run_folder` reports every discovered configured root and its file total. Run progress is the sum of all discovered folder totals; never present a single folder total as the whole run total.
 - `result` is emitted only when a file reaches a terminal `OK`, `SKIP`, or `FAIL` outcome. Processed-file counts and stopped-run summaries must use these events only.
 - Cache skips and already-done files are terminal results and must emit `result` events, including in parallel-worker mode.
