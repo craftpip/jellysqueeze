@@ -20,6 +20,12 @@ libraries:
     target_bitrate: 2000
     max_bitrate: 3000
     encoder: nvidia
+    workers: 2
+    ignore_dirs:
+      - sample
+      - extras
+    ignore_paths:
+      - /path/to/media/staging
     keep_audio_langs:
       - eng
       - en

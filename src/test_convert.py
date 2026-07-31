@@ -91,3 +91,42 @@ def test_run_manager_drains_final_result_before_saving_history():
     saved = state_db.load_run(run_id)
     assert saved["results"][0]["file"] == "video.mkv"
     assert saved["summary"]["ok"] == 1
+
+
+def test_select_audio_empty_allowed_keeps_all(monkeypatch):
+    monkeypatch.setattr(convert, "ALLOWED_AUDIO_LANGS", set())
+    auds = [(1, "eng", True), (2, "jpn", False), (3, "fre", False)]
+    assert convert.select_audio_streams(auds) == [(1, "eng"), (2, "jpn"), (3, "fre")]
+
+
+def test_select_audio_filters_to_allowed(monkeypatch):
+    monkeypatch.setattr(convert, "ALLOWED_AUDIO_LANGS", {"eng", "jpn"})
+    auds = [(1, "eng", True), (2, "jpn", False), (3, "fre", False)]
+    assert convert.select_audio_streams(auds) == [(1, "eng"), (2, "jpn")]
+
+
+def test_select_subtitles_empty_allowed_keeps_all(monkeypatch):
+    monkeypatch.setattr(convert, "ALLOWED_SUBTITLE_LANGS", set())
+    subs = [(1, "subrip", "eng"), (2, "ass", "fre")]
+    assert convert.select_subtitle_streams(subs) == [(1, "subrip", "eng"), (2, "ass", "fre")]
+
+
+def test_library_run_settings_from_lib_entry(monkeypatch):
+    monkeypatch.setattr(convert, "DEFAULT_EXCLUDE_DIRS", {".trickplay"})
+    lib = {
+        "workers": 3,
+        "ignore_dirs": ["sample", "Extras"],
+        "ignore_paths": ["/media/staging"],
+    }
+    workers, excludes, ignore = convert._library_run_settings(lib)
+    assert workers == 3
+    assert excludes == {".trickplay", "sample", "extras"}
+    assert ignore == ["/media/staging"]
+
+
+def test_library_run_settings_falls_back_to_globals(monkeypatch):
+    monkeypatch.setattr(convert, "DEFAULT_EXCLUDE_DIRS", {".trickplay"})
+    workers, excludes, ignore = convert._library_run_settings({}, workers=2, ignore_paths=["/cli/ignore"])
+    assert workers == 2
+    assert excludes == {".trickplay"}
+    assert ignore == ["/cli/ignore"]

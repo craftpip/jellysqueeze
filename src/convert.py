@@ -2,6 +2,7 @@ import os
 import json
 import sys
 import time
+import errno
 import shutil
 import argparse
 import subprocess
@@ -443,18 +444,30 @@ def save_config(config: dict) -> bool:
     if _yaml is None:
         log.warning("pyyaml not installed; cannot save config.yml")
         return False
+    tmp_file = CONFIG_FILE.with_name(f".{CONFIG_FILE.name}.tmp")
     try:
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        tmp_file = CONFIG_FILE.with_name(f".{CONFIG_FILE.name}.tmp")
         with tmp_file.open("w", encoding="utf-8") as f:
             _yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp_file, CONFIG_FILE)
+        try:
+            os.replace(tmp_file, CONFIG_FILE)
+        except OSError as e:
+            if e.errno != errno.EBUSY:
+                raise
+            log.warning("config.yml is a single-file bind mount; falling back to in-place write")
+            with tmp_file.open("r", encoding="utf-8") as src, CONFIG_FILE.open("w", encoding="utf-8") as dst:
+                shutil.copyfileobj(src, dst)
+                dst.flush()
+                os.fsync(dst.fileno())
         return True
     except Exception as e:
         log.warning(f"Failed to save config.yml: {e}")
         return False
+    finally:
+        if tmp_file.exists():
+            tmp_file.unlink(missing_ok=True)
 
 
 def save_env(overrides: dict[str, str]) -> bool:
@@ -566,7 +579,7 @@ def parse_name_list(value: str) -> list[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
-def find_library_config(config: dict | None, library_name: str) -> tuple[list[str], dict | None] | None:
+def find_library_config(config: dict | None, library_name: str) -> tuple[list[str], dict | None, dict] | None:
     if not config:
         return None
     libraries = config.get("libraries") or []
@@ -575,8 +588,26 @@ def find_library_config(config: dict | None, library_name: str) -> tuple[list[st
         if lib.get("name", "").strip().lower() == needle:
             paths = normalize_library_paths(lib)
             profile = _extract_profile(config, lib)
-            return paths, profile
+            return paths, profile, lib
     return None
+
+
+def _library_run_settings(
+    lib: dict,
+    workers: int = 1,
+    ignore_paths: list[str] | None = None,
+) -> tuple[int, set[str], list[str]]:
+    """Per-library run settings: workers, excluded dir names, ignored path segments."""
+    lib_workers = max(1, int(lib.get("workers") or workers))
+    lib_ignore = list(ignore_paths or [])
+    for p in lib.get("ignore_paths") or []:
+        if p and p not in lib_ignore:
+            lib_ignore.append(p)
+    excludes = parse_exclude_dirs("")
+    for d in lib.get("ignore_dirs") or []:
+        if d:
+            excludes.add(d.strip().lower())
+    return lib_workers, excludes, lib_ignore
 
 
 def run_library_scan(
@@ -590,6 +621,7 @@ def run_library_scan(
     profile: dict | None = None,
     ignore_paths: list[str] | None = None,
     scanned_paths: list[tuple[Path, list[Path], int, float]] | None = None,
+    exclude_dirs: set[str] | None = None,
 ) -> tuple[int, int, int, float, bool]:
     global TARGET_BR, MAX_BR, BUFSIZE, TRANSCODER, TRANSCODER_PROFILE, ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS
 
@@ -614,14 +646,14 @@ def run_library_scan(
 
     try:
         if scanned_paths is None:
-            scanned_paths = scan_library_paths(library_name, lib_paths, ignore_paths)
+            scanned_paths = scan_library_paths(library_name, lib_paths, ignore_paths, exclude_dirs)
 
         profile_min_savings = max(min_savings_pct, int(profile.get("minimum_savings_percent", 0)) if profile else 0)
         for path_obj, files, scanned_entries, discovery_time in scanned_paths:
             scanned_any = True
             ok, skip, fail, space_mb = main(
                 str(path_obj), crf, verbose,
-                parse_exclude_dirs(""), False, workers,
+                exclude_dirs if exclude_dirs is not None else parse_exclude_dirs(""), False, workers,
                 profile_min_savings, dry_run, ignore_paths,
                 files, scanned_entries, discovery_time,
             )
@@ -646,9 +678,10 @@ def scan_library_paths(
     library_name: str,
     lib_paths: list[str],
     ignore_paths: list[str] | None = None,
+    exclude_dirs: set[str] | None = None,
 ) -> list[tuple[Path, list[Path], int, float]]:
     """Discover every valid root now; process these results after all scans finish."""
-    excludes = parse_exclude_dirs("")
+    excludes = exclude_dirs if exclude_dirs is not None else parse_exclude_dirs("")
     scanned_paths: list[tuple[Path, list[Path], int, float]] = []
 
     for raw_path in lib_paths:
@@ -989,6 +1022,8 @@ def pick_primary_video(vids):
 
 
 def select_audio_streams(auds):
+    if not ALLOWED_AUDIO_LANGS:
+        return [(idx, lang) for idx, lang, _is_default in auds]
     selected = [(idx, lang) for idx, lang, _is_default in auds if lang in ALLOWED_AUDIO_LANGS or lang == "und"]
     if selected or not auds:
         return selected
@@ -1005,6 +1040,8 @@ def select_audio_streams(auds):
 
 def select_subtitle_streams(subs: list) -> list[tuple[int, str, str]]:
     allowed = ALLOWED_SUBTITLE_LANGS if ALLOWED_SUBTITLE_LANGS is not None else ALLOWED_AUDIO_LANGS
+    if not allowed:
+        return [(idx, codec, lang) for idx, codec, lang in subs]
     selected = [(idx, codec, lang) for idx, codec, lang in subs if lang in allowed]
     return selected
 
@@ -2366,7 +2403,7 @@ def main_all(crf: int | None = None, verbose: bool = False, workers: int = 1, dr
     total_space_mb = 0.0
     total_started = time.perf_counter()
 
-    queued_libraries: list[tuple[str, list[str], dict | None, list[tuple[Path, list[Path], int, float]]]] = []
+    queued_libraries: list[tuple[str, list[str], dict | None, int, set[str], list[str], list[tuple[Path, list[Path], int, float]]]] = []
     for lib in libraries:
         lib_name = lib.get("name", "unknown")
         profile = _extract_profile(config, lib)
@@ -2376,15 +2413,17 @@ def main_all(crf: int | None = None, verbose: bool = False, workers: int = 1, dr
             log.warning(f"Library '{lib_name}' has no path, skipping")
             continue
 
-        log.info(f"=== Library: {lib_name} ===")
-        scanned_paths = scan_library_paths(lib_name, lib_paths, ignore_paths)
-        if scanned_paths:
-            queued_libraries.append((lib_name, lib_paths, profile, scanned_paths))
+        lib_workers, lib_excludes, lib_ignore = _library_run_settings(lib, workers, ignore_paths)
 
-    for lib_name, lib_paths, profile, scanned_paths in queued_libraries:
+        log.info(f"=== Library: {lib_name} ===")
+        scanned_paths = scan_library_paths(lib_name, lib_paths, lib_ignore, lib_excludes)
+        if scanned_paths:
+            queued_libraries.append((lib_name, lib_paths, profile, lib_workers, lib_excludes, lib_ignore, scanned_paths))
+
+    for lib_name, lib_paths, profile, lib_workers, lib_excludes, lib_ignore, scanned_paths in queued_libraries:
         log.info(f"=== Processing library: {lib_name} ===")
         ok, skip, fail, space_mb, scanned_any = run_library_scan(
-            lib_name, lib_paths, crf, verbose, workers, dry_run, min_savings_pct, profile, ignore_paths, scanned_paths
+            lib_name, lib_paths, crf, verbose, lib_workers, dry_run, min_savings_pct, profile, lib_ignore, scanned_paths, lib_excludes
         )
         if not scanned_any:
             continue
@@ -2438,27 +2477,29 @@ def main_library(
     total_space_mb = 0.0
     total_started = time.perf_counter()
 
-    queued_libraries: list[tuple[str, list[str], dict | None, list[tuple[Path, list[Path], int, float]]]] = []
+    queued_libraries: list[tuple[str, list[str], dict | None, int, set[str], list[str], list[tuple[Path, list[Path], int, float]]]] = []
     for library_name in requested_names:
         lib_info = find_library_config(config, library_name)
         if not lib_info:
             log.error(f"FATAL: library '{library_name}' not found in config.yml")
             continue
 
-        lib_paths, profile = lib_info
+        lib_paths, profile, lib = lib_info
         if not lib_paths:
             log.error(f"FATAL: library '{library_name}' has no paths in config.yml")
             continue
 
-        log.info(f"=== Library: {library_name} ===")
-        scanned_paths = scan_library_paths(library_name, lib_paths, ignore_paths)
-        if scanned_paths:
-            queued_libraries.append((library_name, lib_paths, profile, scanned_paths))
+        lib_workers, lib_excludes, lib_ignore = _library_run_settings(lib, workers, ignore_paths)
 
-    for library_name, lib_paths, profile, scanned_paths in queued_libraries:
+        log.info(f"=== Library: {library_name} ===")
+        scanned_paths = scan_library_paths(library_name, lib_paths, lib_ignore, lib_excludes)
+        if scanned_paths:
+            queued_libraries.append((library_name, lib_paths, profile, lib_workers, lib_excludes, lib_ignore, scanned_paths))
+
+    for library_name, lib_paths, profile, lib_workers, lib_excludes, lib_ignore, scanned_paths in queued_libraries:
         log.info(f"=== Processing library: {library_name} ===")
         ok, skip, fail, space_mb, scanned_any = run_library_scan(
-            library_name, lib_paths, crf, verbose, workers, dry_run, min_savings_pct, profile, ignore_paths, scanned_paths
+            library_name, lib_paths, crf, verbose, lib_workers, dry_run, min_savings_pct, profile, lib_ignore, scanned_paths, lib_excludes
         )
         if not scanned_any:
             log.error(f"FATAL: library '{library_name}' has no valid paths")
@@ -2562,7 +2603,7 @@ def main_jellyfin_recent(
         if config:
             lib_info = find_library_config(config, lib_name)
             if lib_info:
-                _path, profile = lib_info
+                _path, profile, _lib = lib_info
                 if profile:
                     set_profile_globals(profile)
 

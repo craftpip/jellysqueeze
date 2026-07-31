@@ -17,10 +17,7 @@ services:
     env_file:
       - .env
     volumes:
-      - "${PWD}/config.yml:/app/config.yml"
-      - "${PWD}/.env:/app/.env"
-      - "${PWD}/var:/app/var"
-      - "${PWD}/src:/app/src"
+      - "${PWD}:/app"
       - /mnt/media1t/downloads:/mnt/media1t/downloads
       - /mnt/media2t/downloads:/mnt/media2t/downloads
       - /mnt/media3t/downloads:/mnt/media3t/downloads

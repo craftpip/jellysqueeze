@@ -241,7 +241,7 @@ def api_get_library(name: str):
     if not lib_info:
         raise HTTPException(status_code=404, detail=f"library '{name}' not found")
 
-    paths, profile = lib_info
+    paths, profile, _lib = lib_info
     runs = [_run_list_entry(r) for r in _load_runs() if r.get("library") == name]
 
     seen = set()
@@ -305,7 +305,8 @@ async def api_create_library(body: dict):
     if body.get("paths"):
         entry["paths"] = body["paths"] if isinstance(body["paths"], list) else [body["paths"]]
     for key in ("encoder", "target_bitrate", "max_bitrate", "keep_audio_langs",
-                "keep_subtitle_langs", "minimum_savings_percent"):
+                "keep_subtitle_langs", "minimum_savings_percent",
+                "workers", "ignore_paths", "ignore_dirs"):
         if key in body:
             entry[key] = body[key]
 
@@ -330,7 +331,8 @@ async def api_update_library(name: str, body: dict):
             if "paths" in body:
                 lib["paths"] = body["paths"] if isinstance(body["paths"], list) else [body["paths"]]
             for key in ("encoder", "target_bitrate", "max_bitrate", "keep_audio_langs",
-                        "keep_subtitle_langs", "minimum_savings_percent"):
+                        "keep_subtitle_langs", "minimum_savings_percent",
+                        "workers", "ignore_paths", "ignore_dirs"):
                 if key in body:
                     lib[key] = body[key]
             config["libraries"] = libraries

@@ -108,8 +108,9 @@ export default function LibraryDetail() {
             <div className="detail-row"><span className="label">Target bitrate</span><span className="value" style={{fontFamily:'monospace',fontSize:12}}>{p.target_bitrate || '—'} kbps</span></div>
             <div className="detail-row"><span className="label">Max bitrate</span><span className="value" style={{fontFamily:'monospace',fontSize:12}}>{p.max_bitrate || '—'} kbps</span></div>
             <div className="detail-row"><span className="label">Min savings</span><span className="value" style={{fontFamily:'monospace',fontSize:12}}>{p.minimum_savings_percent || 0}%</span></div>
-            <div className="detail-row"><span className="label">Audio langs</span><span className="value" style={{fontFamily:'monospace',fontSize:12}}>{(p.keep_audio_langs || []).join(', ') || '—'}</span></div>
-            <div className="detail-row"><span className="label">Subtitle langs</span><span className="value" style={{fontFamily:'monospace',fontSize:12}}>{p.keep_subtitle_langs ? p.keep_subtitle_langs.join(', ') : '(same as audio)'}</span></div>
+            <div className="detail-row"><span className="label">Workers</span><span className="value" style={{fontFamily:'monospace',fontSize:12}}>{p.workers || 1}</span></div>
+            <div className="detail-row"><span className="label">Audio langs</span><span className="value" style={{fontFamily:'monospace',fontSize:12}}>{(p.keep_audio_langs || []).join(', ') || 'all'}</span></div>
+            <div className="detail-row"><span className="label">Subtitle langs</span><span className="value" style={{fontFamily:'monospace',fontSize:12}}>{p.keep_subtitle_langs == null ? '(same as audio)' : (p.keep_subtitle_langs.length ? p.keep_subtitle_langs.join(', ') : 'all')}</span></div>
           </div>
 
           <div style={s.section}>
