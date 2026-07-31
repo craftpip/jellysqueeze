@@ -89,6 +89,7 @@ input[type="checkbox"]{width:16px;height:16px;accent-color:#4c9aff}
 .libs-table th{padding:8px 10px;text-align:left;font-weight:500;font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.4px}
 .libs-table td{padding:9px 10px;border-bottom:1px solid #1c1c1c;color:#999;vertical-align:middle}
 .libs-table tbody tr{cursor:pointer}
+.libs-table.errors-table tbody tr{cursor:default}
 .libs-table tbody tr:hover td{background:#181818}
 .libs-table td .lib-name{color:#e0e0e0;font-weight:500}
 
