@@ -41,6 +41,18 @@ def _run_list_entry(run: dict) -> dict:
     }
 
 
+def _run_stats(run: dict) -> dict:
+    s = run.get("summary") or {}
+    if s.get("files_total", 0) <= 0:
+        return {"ok": 0, "skip": 0, "fail": 0, "space_saved_mb": 0}
+    return {
+        "ok": s.get("ok", 0) or 0,
+        "skip": s.get("skip", 0) or 0,
+        "fail": s.get("fail", 0) or 0,
+        "space_saved_mb": s.get("space_saved_mb", 0) or 0,
+    }
+
+
 def _load_config_safe():
     config = conv.load_config()
     if config is None:
@@ -213,8 +225,8 @@ def api_list_libraries():
         lib_runs = [r for r in runs if r.get("library") == name]
         last_run = lib_runs[0] if lib_runs else None
         total_saved = sum(
-            r.get("summary", {}).get("space_saved_mb", 0)
-            for r in lib_runs if r.get("exit_code") == 0
+            _run_stats(r)["space_saved_mb"]
+            for r in lib_runs
         )
         result.append({
             "name": name,
@@ -433,13 +445,13 @@ def api_stats():
     total_fail = 0
     completed_runs = 0
     for r in runs:
-        s = r.get("summary") or {}
+        s = _run_stats(r)
         if r.get("exit_code") == 0:
             completed_runs += 1
-            total_saved_mb += s.get("space_saved_mb", 0)
-            total_ok += s.get("ok", 0)
-            total_skip += s.get("skip", 0)
-            total_fail += s.get("fail", 0)
+        total_saved_mb += s["space_saved_mb"]
+        total_ok += s["ok"]
+        total_skip += s["skip"]
+        total_fail += s["fail"]
     return {
         "total_runs": len(runs),
         "completed_runs": completed_runs,

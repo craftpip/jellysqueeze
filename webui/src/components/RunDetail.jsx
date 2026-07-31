@@ -31,6 +31,7 @@ export default function RunDetail() {
   const [exitCode, setExitCode] = useState(null)
   const [activeProgress, setActiveProgress] = useState({})
   const [filterChecks, setFilterChecks] = useState({ done: true, failed: true, skipped: false })
+  const [nameFilter, setNameFilter] = useState('')
   const [folderTotals, setFolderTotals] = useState({})
   const [runStatus, setRunStatus] = useState({ phase: '', message: '' })
   const [error, setError] = useState('')
@@ -201,9 +202,11 @@ export default function RunDetail() {
   const runTotal = Object.values(folderTotals).reduce((sum, total) => sum + total, 0)
   const runPct = runTotal > 0 ? results.length / runTotal * 100 : 0
   const visibleResults = results.filter(r => {
-    if (r.status === 'OK') return filterChecks.done
-    if (r.status === 'FAIL') return filterChecks.failed
-    if (r.status === 'SKIP') return filterChecks.skipped
+    if (r.status === 'OK' && !filterChecks.done) return false
+    if (r.status === 'FAIL' && !filterChecks.failed) return false
+    if (r.status === 'SKIP' && !filterChecks.skipped) return false
+    const q = nameFilter.trim().toLowerCase()
+    if (q && !(r.file || '').toLowerCase().includes(q)) return false
     return true
   })
 
@@ -336,6 +339,13 @@ export default function RunDetail() {
         <div id="section-processed-files" style={{ marginBottom: 16 }}>
           <div className="flex items-center gap-8 mb-8">
             <h3 style={{ flex: 1, margin: 0, fontSize: 14, fontWeight: 600, color: '#ccc' }}>Processed Files</h3>
+            <input
+              className="filter-input"
+              type="text"
+              placeholder="Filter by name..."
+              value={nameFilter}
+              onChange={e => setNameFilter(e.target.value)}
+            />
             <button className={'btn outline sm' + (filterChecks.done ? ' active' : '')} onClick={() => setFilterChecks(p => ({ ...p, done: !p.done }))}>Done <span className="badge">{okCount}</span></button>
             <button className={'btn outline sm' + (filterChecks.failed ? ' active' : '')} onClick={() => setFilterChecks(p => ({ ...p, failed: !p.failed }))}>Failed <span className="badge">{failCount}</span></button>
             <button className={'btn outline sm' + (filterChecks.skipped ? ' active' : '')} onClick={() => setFilterChecks(p => ({ ...p, skipped: !p.skipped }))}>Skipped <span className="badge">{skipCount}</span></button>

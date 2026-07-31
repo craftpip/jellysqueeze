@@ -63,6 +63,7 @@ DEFAULT_WORKERS = int(os.getenv("DEFAULT_WORKERS", "1"))
 DEFAULT_EXCLUDE_PATTERNS = os.getenv("DEFAULT_EXCLUDE", "")
 DEFAULT_IGNORE_PATH = os.getenv("DEFAULT_IGNORE_PATH", "")
 CLEANUP_TMP = os.getenv("CLEANUP_TMP", "0") == "1"
+FAILURE_COOLDOWN_HOURS = float(os.getenv("FAILURE_COOLDOWN_HOURS", "24"))
 
 
 # Codecs supported by each profile's hardware decoder (common codecs across most GPUs)
@@ -1639,6 +1640,63 @@ def build_ffmpeg_cmd(
     return cmd, None
 
 
+def validate_attempt_output(source: Path, output: Path, active_encoder: str) -> tuple[bool, str]:
+    """Run stream-signature and media validation for one finished encode attempt."""
+    expected = expected_output_signature(source, active_encoder)
+    actual = probe_output_signature(output)
+    if expected is None or actual is None or expected != actual:
+        return False, f"stream_signature_mismatch(expected={expected}, actual={actual})"
+    return validate_output_media(source, output)
+
+
+def record_invalid_output_diagnostics(source: Path, output: Path, run_name: str) -> str:
+    """Capture lightweight facts about a rejected encode before its temp file is deleted."""
+    try:
+        signature = probe_output_signature(output)
+    except Exception:
+        signature = None
+    src_ends = packet_ends_by_stream(source)
+    out_ends = packet_ends_by_stream(output)
+    decode = subprocess.run(
+        [FFMPEG_CMD, "-v", "error", "-xerror", "-i", str(output), "-map", "0:v?", "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    decode_summary = summarize_ffmpeg_error(decode.stderr) if decode.returncode != 0 else "ok"
+    return (
+        f"  validation diagnostics ({run_name}):\n"
+        f"    stream signature: {signature}\n"
+        f"    packet ends source: {src_ends}\n"
+        f"    packet ends output: {out_ends}\n"
+        f"    decode: exit={decode.returncode} {decode_summary}"
+    )
+
+
+def _fingerprint_key(fp: tuple[int, int, int, int]) -> str:
+    return f"{fp[0]}:{fp[1]}:{fp[2]}:{fp[3]}"
+
+
+def get_failure_cooldown(file: Path, opt: str) -> str | None:
+    """Return the active failure-cooldown message for a file, if any."""
+    fp = source_fingerprint(file)
+    if fp is None:
+        return None
+    entry = state_db.load_failure_cooldown(str(file))
+    if not entry:
+        return None
+    if entry.get("option") != opt or entry.get("fingerprint") != _fingerprint_key(fp):
+        return None
+    return entry.get("message") or "cooldown_active"
+
+
+def record_failure_cooldown(file: Path, opt: str, message: str) -> None:
+    """Remember a confirmed-unrecoverable source so repeat runs skip it for a bounded time."""
+    fp = source_fingerprint(file)
+    if fp is None:
+        return
+    state_db.save_failure_cooldown(str(file), _fingerprint_key(fp), opt, message, FAILURE_COOLDOWN_HOURS)
+    log.warning(f"Recorded failure cooldown for {file} ({FAILURE_COOLDOWN_HOURS:.1f}h): {message}")
+
+
 def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False, min_savings_pct: int = 0, show_progress: bool = False, progress_callback: typing.Callable[[Path, float | None], None] | None = None):
     ext = file.suffix.lower()
 
@@ -1657,6 +1715,12 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
 
         if br <= MAX_BR:
             return "SKIP", f"ok({br}kbps)", None
+
+    current_opt = conversion_option(crf, min_savings_pct)
+    cooldown_msg = get_failure_cooldown(file, current_opt)
+    if cooldown_msg is not None:
+        log.info(f"Failure cooldown active for {file.name}: {cooldown_msg}")
+        return "SKIP", f"failure_cooldown({cooldown_msg})", None
 
     tmp = tmp_name_for(file)
     resume_tmp = resume_name_for(file)
@@ -1873,6 +1937,21 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
                             pass
                         continue
 
+                valid, validation_error = validate_attempt_output(file, tmp, attempt_encoder)
+                if not valid:
+                    diagnostics = record_invalid_output_diagnostics(file, tmp, run_name)
+                    log.warning(f"Validation failed for {file.name} using {run_name}: {validation_error}")
+                    if diagnostics:
+                        for line in diagnostics.splitlines():
+                            log.warning(line)
+                    last_error = f"validation_failed({run_name}): {validation_error}"
+                    try:
+                        if tmp.exists():
+                            tmp.unlink()
+                    except Exception:
+                        pass
+                    break
+
                 last_error = ""
                 finished = True
                 break
@@ -1900,6 +1979,8 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
             break
 
     if not finished:
+        if last_error.startswith("validation_failed("):
+            record_failure_cooldown(file, current_opt, last_error)
         return "FAIL", last_error, None
     if not tmp.exists() or tmp.stat().st_size == 0:
         try:
@@ -1908,23 +1989,6 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
         except Exception:
             pass
         return "FAIL", "ffmpeg_failed", None
-
-    expected = expected_output_signature(file, attempt_encoder)
-    actual = probe_output_signature(tmp)
-    if expected is None or actual is None or expected != actual:
-        try:
-            tmp.unlink()
-        except Exception:
-            pass
-        return "FAIL", f"stream_signature_mismatch(expected={expected}, actual={actual})", None
-
-    output_valid, output_error = validate_output_media(file, tmp)
-    if not output_valid:
-        try:
-            tmp.unlink()
-        except Exception:
-            pass
-        return "FAIL", output_error, None
 
     before_size = file.stat().st_size
     after_size = tmp.stat().st_size
@@ -2169,18 +2233,19 @@ def main(
                           after=size_row[2] if size_row else 0)
             elif status == "SKIP":
                 skip += 1
-                probe_cache[path] = {
-                    "size": size,
-                    "mtime_ns": mtime_ns,
-                    "opt": current_opt,
-                    "status": "SKIP",
-                    "msg": msg,
-                }
-                probe_check_time += elapsed
-                probe_cache_dirty = True
-                if msg.startswith(("savings_too_small(", "output_larger(")):
-                    save_probe_cache(probe_cache)
-                    probe_cache_dirty = False
+                if not str(msg).startswith("failure_cooldown("):
+                    probe_cache[path] = {
+                        "size": size,
+                        "mtime_ns": mtime_ns,
+                        "opt": current_opt,
+                        "status": "SKIP",
+                        "msg": msg,
+                    }
+                    probe_check_time += elapsed
+                    probe_cache_dirty = True
+                    if msg.startswith(("savings_too_small(", "output_larger(")):
+                        save_probe_cache(probe_cache)
+                        probe_cache_dirty = False
                 log.info(f"[{i}/{total}] SKIP: {f} :: {msg}")
                 emit_json("result", file=str(f), status="SKIP", msg=msg)
             else:
@@ -2312,13 +2377,14 @@ def main(
                 result["cache_delete"] = True
                 log.info(f"[{i}/{total}] OK: {f} :: {msg}")
             elif status == "SKIP":
-                result["cache_update"] = {
-                    "size": size,
-                    "mtime_ns": mtime_ns,
-                    "opt": current_opt,
-                    "status": "SKIP",
-                    "msg": msg,
-                }
+                if not str(msg).startswith("failure_cooldown("):
+                    result["cache_update"] = {
+                        "size": size,
+                        "mtime_ns": mtime_ns,
+                        "opt": current_opt,
+                        "status": "SKIP",
+                        "msg": msg,
+                    }
                 log.info(f"[{i}/{total}] SKIP: {f} :: {msg}")
             else:
                 if str(msg).startswith("ffmpeg_failed") or str(msg).startswith("replace_failed"):
@@ -2803,14 +2869,15 @@ def main_jellyfin_recent(
             emit_json("result", file=str(file_path), status="OK", msg=msg, before=before, after=after)
         elif status == "SKIP":
             skip += 1
-            probe_cache[path] = {
-                "size": size, "mtime_ns": mtime_ns,
-                "opt": current_opt, "status": "SKIP", "msg": msg,
-            }
-            probe_cache_dirty = True
-            if msg.startswith(("savings_too_small(", "output_larger(")):
-                save_probe_cache(probe_cache)
-                probe_cache_dirty = False
+            if not str(msg).startswith("failure_cooldown("):
+                probe_cache[path] = {
+                    "size": size, "mtime_ns": mtime_ns,
+                    "opt": current_opt, "status": "SKIP", "msg": msg,
+                }
+                probe_cache_dirty = True
+                if msg.startswith(("savings_too_small(", "output_larger(")):
+                    save_probe_cache(probe_cache)
+                    probe_cache_dirty = False
             log.info(f"[{i}/{len(unique_files)}] SKIP: {file_path} :: {msg}")
             emit_json("result", file=str(file_path), status="SKIP", msg=msg)
         else:

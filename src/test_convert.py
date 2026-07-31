@@ -230,3 +230,81 @@ def test_library_run_settings_falls_back_to_globals(monkeypatch):
     assert workers == 2
     assert excludes == {".trickplay"}
     assert ignore == ["/cli/ignore"]
+
+
+def _setup_convertible_source(tmp_path, monkeypatch):
+    src = tmp_path / "src.mkv"
+    src.write_bytes(b"x" * 100)
+    monkeypatch.setattr(convert, "get_estimated_bitrate_kbps", lambda f: 50000)
+    monkeypatch.setattr(convert, "get_media_duration_seconds", lambda f: 100.0)
+    monkeypatch.setattr(convert, "TRANSCODER", "h264_nvenc")
+    monkeypatch.setattr(convert, "TRANSCODER_PROFILE", "nvidia")
+    monkeypatch.setattr(convert, "get_available_encoders", lambda: {"h264_nvenc", "libx264"})
+
+    def fake_build(in_file, out_file, crf=None, verbose=False, seek_seconds=0.0, **options):
+        out_file.write_bytes(b"encoded-data")
+        return (["ffmpeg", "-y", str(out_file)], None)
+
+    monkeypatch.setattr(convert, "build_ffmpeg_cmd", fake_build)
+    monkeypatch.setattr(convert, "record_invalid_output_diagnostics", lambda *a, **k: "")
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda cmd, **kwargs: types.SimpleNamespace(returncode=0),
+    )
+    return src
+
+
+def test_validation_failure_advances_to_next_fallback(tmp_path, monkeypatch):
+    src = _setup_convertible_source(tmp_path, monkeypatch)
+    attempts = []
+
+    def fake_validate(source, output, active_encoder):
+        attempts.append(active_encoder)
+        if len(attempts) < 3:
+            return False, "duration_mismatch(source=100.00, output=90.00)"
+        return True, "ok"
+
+    monkeypatch.setattr(convert, "validate_attempt_output", fake_validate)
+
+    status, msg, size_row = convert.convert_if_needed(src)
+
+    assert status == "OK"
+    assert attempts == ["h264_nvenc", "h264_nvenc", "libx264"]
+    assert size_row is not None
+
+
+def test_validation_failure_all_attempts_returns_fail(tmp_path, monkeypatch):
+    src = _setup_convertible_source(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        convert, "validate_attempt_output",
+        lambda s, o, e: (False, "duration_mismatch(source=100.00, output=90.00)"),
+    )
+
+    status, msg, size_row = convert.convert_if_needed(src)
+
+    assert status == "FAIL"
+    assert msg.startswith("validation_failed(cpu):")
+    assert "source=100.00" in msg and "output=90.00" in msg
+
+
+def test_failure_cooldown_skips_repeat_work_until_fingerprint_changes(tmp_path, monkeypatch):
+    src = _setup_convertible_source(tmp_path, monkeypatch)
+    fp = [1, 2, 100, 3]
+    monkeypatch.setattr(convert, "source_fingerprint", lambda f: tuple(fp))
+    monkeypatch.setattr(
+        convert, "validate_attempt_output",
+        lambda s, o, e: (False, "duration_mismatch(source=100.00, output=90.00)"),
+    )
+
+    status, msg, _ = convert.convert_if_needed(src)
+    assert status == "FAIL"
+    assert msg.startswith("validation_failed(cpu):")
+
+    status2, msg2, _ = convert.convert_if_needed(src)
+    assert status2 == "SKIP"
+    assert "failure_cooldown" in msg2
+
+    fp[2] = 200
+    status3, msg3, _ = convert.convert_if_needed(src)
+    assert status3 == "FAIL"
+    assert msg3.startswith("validation_failed(cpu):")

@@ -44,6 +44,14 @@ def initialize() -> None:
                 message TEXT NOT NULL,
                 updated_at REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS failure_cooldowns (
+                path TEXT PRIMARY KEY,
+                fingerprint TEXT NOT NULL,
+                option TEXT NOT NULL,
+                recorded_at REAL NOT NULL,
+                expires_at REAL NOT NULL,
+                message TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS runs (
                 run_id TEXT PRIMARY KEY,
                 library TEXT,
@@ -187,6 +195,44 @@ def save_probe_cache(cache: dict[str, dict]) -> None:
                  entry.get("status", "SKIP"), entry.get("msg", "cached_skip"), now)
                 for path, entry in cache.items()
             ],
+        )
+
+
+def load_failure_cooldown(path: str) -> dict | None:
+    """Return the active failure cooldown for a path, purging expired entries."""
+    initialize()
+    now = time.time()
+    with _connect() as conn:
+        conn.execute("DELETE FROM failure_cooldowns WHERE expires_at <= ?", (now,))
+        row = conn.execute("SELECT * FROM failure_cooldowns WHERE path = ?", (path,)).fetchone()
+        if not row:
+            return None
+        return {
+            "fingerprint": row["fingerprint"],
+            "option": row["option"],
+            "recorded_at": row["recorded_at"],
+            "expires_at": row["expires_at"],
+            "message": row["message"],
+        }
+
+
+def save_failure_cooldown(
+    path: str,
+    fingerprint: str,
+    option: str,
+    message: str,
+    ttl_hours: float = 24.0,
+) -> None:
+    """Record a bounded skip so repeat runs avoid re-encoding an unrecoverable source."""
+    initialize()
+    now = time.time()
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO failure_cooldowns(path, fingerprint, option, recorded_at, expires_at, message)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(path) DO UPDATE SET fingerprint=excluded.fingerprint, option=excluded.option,
+            recorded_at=excluded.recorded_at, expires_at=excluded.expires_at, message=excluded.message""",
+            (path, fingerprint, option, now, now + ttl_hours * 3600, message),
         )
 
 
