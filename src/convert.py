@@ -1046,6 +1046,47 @@ def select_subtitle_streams(subs: list) -> list[tuple[int, str, str]]:
     return selected
 
 
+def stream_packet_counts(file) -> dict[int, int] | None:
+    """Packet count per stream index from a single full-file packet scan."""
+    cmd = [
+        FFPROBE_CMD, "-v", "error", "-show_packets",
+        "-show_entries", "packet=stream_index", "-of", "json", str(file),
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    try:
+        data = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return None
+    counts: dict[int, int] = {}
+    for p in data.get("packets", []):
+        try:
+            si = int(p.get("stream_index", -1))
+        except (ValueError, TypeError):
+            continue
+        counts[si] = counts.get(si, 0) + 1
+    return counts
+
+
+def filter_dead_streams(file, vids, auds, subs):
+    """Drop header-only streams that carry no packets (concat artifacts).
+
+    Only scans when a file declares multiple video streams; healthy files keep
+    their single-video fast path untouched.
+    """
+    if len(vids) <= 1:
+        return vids, auds, subs
+    counts = stream_packet_counts(file)
+    if counts is None:
+        return vids, auds, subs
+    return (
+        [(i, c, d) for i, c, d in vids if counts.get(i, 0) > 0],
+        [(i, l, d) for i, l, d in auds if counts.get(i, 0) > 0],
+        [(i, c, l) for i, c, l in subs if counts.get(i, 0) > 0],
+    )
+
+
 def probe_video_codec(file) -> str | None:
     data = ffprobe_json(file, "stream=index,codec_type,codec_name:stream_disposition=attached_pic,default")
     if not data or "streams" not in data:
@@ -1155,7 +1196,9 @@ def expected_output_signature(in_file: Path, active_encoder: str) -> tuple[tuple
     if not streams:
         return None
 
-    _vids, auds, subs = streams
+    vids, auds, subs = streams
+    if len(vids) > 1:
+        vids, auds, subs = filter_dead_streams(in_file, vids, auds, subs)
     data = ffprobe_json(in_file, "stream=index,codec_type,codec_name:stream_tags=language")
     if not data or "streams" not in data:
         return None
@@ -1231,20 +1274,106 @@ def get_total_frames(file: Path) -> int | None:
     return None
 
 
+def packet_ends_by_stream(file) -> dict[int, float] | None:
+    """Max packet end (pts+duration) per stream index from a single full-file scan."""
+    cmd = [
+        FFPROBE_CMD, "-v", "error", "-show_packets",
+        "-show_entries", "packet=stream_index,pts_time,duration_time", "-of", "json", str(file),
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    try:
+        data = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return None
+    ends: dict[int, float] = {}
+    for p in data.get("packets", []):
+        try:
+            si = int(p.get("stream_index", -1))
+        except (ValueError, TypeError):
+            continue
+        pts = p.get("pts_time")
+        dur = p.get("duration_time")
+        if pts is None or dur is None or pts == "N/A" or dur == "N/A":
+            continue
+        try:
+            end = float(pts) + float(dur)
+        except (ValueError, TypeError):
+            continue
+        if end > ends.get(si, 0.0):
+            ends[si] = end
+    return ends
+
+
+def _packet_durations_agree(source: Path, output: Path) -> bool:
+    """Re-measure real media end times from packets when container headers disagree.
+
+    Some rips carry an inflated container duration (stale muxer header or subtitle
+    timestamps extending past the real media), so the header-only comparison in
+    validate_output_media() produces false duration_mismatch results. Compare the
+    actual packet end times of the mapped video and audio streams on both sides.
+    """
+    src_streams = probe_streams(source)
+    out_streams = probe_streams(output)
+    if not src_streams or not out_streams:
+        return False
+    src_vids, src_auds, _ = src_streams
+    out_vids, out_auds, _ = out_streams
+    src_v_idx, _ = pick_primary_video(src_vids)
+    if src_v_idx is None:
+        return False
+
+    src_ends = packet_ends_by_stream(source)
+    out_ends = packet_ends_by_stream(output)
+    if src_ends is None or out_ends is None:
+        return False
+
+    src_v_end = src_ends.get(src_v_idx)
+    out_v_end = max((out_ends.get(i, 0.0) for i, _c, _d in out_vids), default=None)
+    if src_v_end is None or out_v_end is None:
+        return False
+    if abs(src_v_end - out_v_end) > max(2.0, src_v_end * 0.01):
+        return False
+
+    src_a_idx = [i for i, _l in select_audio_streams(src_auds)]
+    src_a_end = max((src_ends.get(i, 0.0) for i in src_a_idx), default=None) if src_a_idx else None
+    out_a_end = max((out_ends.get(i, 0.0) for i, _l, _d in out_auds), default=None) if out_auds else None
+    if src_a_end is not None and out_a_end is not None:
+        if abs(src_a_end - out_a_end) > max(2.0, src_a_end * 0.01):
+            return False
+    return True
+
+
 def validate_output_media(source: Path, output: Path) -> tuple[bool, str]:
     source_duration = get_media_duration_seconds(source)
     output_duration = get_media_duration_seconds(output)
     if source_duration is None or output_duration is None:
         return False, "duration_probe_failed"
     if abs(source_duration - output_duration) > max(2.0, source_duration * 0.01):
-        return False, f"duration_mismatch(source={source_duration:.2f}, output={output_duration:.2f})"
+        if not _packet_durations_agree(source, output):
+            return False, f"duration_mismatch(source={source_duration:.2f}, output={output_duration:.2f})"
+        log.info(
+            f"Duration header mismatch tolerated for {output.name}: "
+            f"source container={source_duration:.2f}s vs output={output_duration:.2f}s (packet media ends match)"
+        )
     result = subprocess.run(
-        [FFMPEG_CMD, "-v", "error", "-xerror", "-i", str(output), "-map", "0:v?", "-map", "0:a?", "-f", "null", "-"],
+        [FFMPEG_CMD, "-v", "error", "-xerror", "-i", str(output), "-map", "0:v?", "-f", "null", "-"],
         capture_output=True,
         text=True,
     )
     if result.returncode != 0:
         return False, f"decode_validation_failed({summarize_ffmpeg_error(result.stderr)})"
+    audio_result = subprocess.run(
+        [FFMPEG_CMD, "-v", "error", "-i", str(output), "-map", "0:a?", "-f", "null", "-"],
+        capture_output=True,
+        text=True,
+    )
+    if audio_result.returncode != 0:
+        log.warning(
+            f"Audio decode validation failed for {output.name}; audio is stream-copied, "
+            f"so this reflects corrupt source audio: {summarize_ffmpeg_error(audio_result.stderr)}"
+        )
     return True, "ok"
 
 
@@ -1400,8 +1529,12 @@ def build_ffmpeg_cmd(
 
     vids, auds, subs = streams
 
-    if len(vids) != 1:
+    if len(vids) == 0:
         return None, "multiple_or_missing_video_streams"
+    if len(vids) > 1:
+        vids, auds, subs = filter_dead_streams(in_file, vids, auds, subs)
+        if len(vids) == 0:
+            return None, "multiple_or_missing_video_streams"
 
     video_idx, video_codec_from_streams = pick_primary_video(vids)
     if video_idx is None:

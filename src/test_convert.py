@@ -1,5 +1,8 @@
 import asyncio
+import shutil
+import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -91,6 +94,103 @@ def test_run_manager_drains_final_result_before_saving_history():
     saved = state_db.load_run(run_id)
     assert saved["results"][0]["file"] == "video.mkv"
     assert saved["summary"]["ok"] == 1
+
+
+FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
+requires_ffmpeg = pytest.mark.skipif(not FFMPEG_AVAILABLE, reason="ffmpeg/ffprobe not available")
+
+
+def _make_sample(path, duration):
+    subprocess.run(
+        [
+            convert.FFMPEG_CMD, "-y", "-v", "error",
+            "-f", "lavfi", "-i", f"testsrc=duration={duration}:size=128x64:rate=10",
+            "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
+            "-c:v", "libx264", "-c:a", "aac", "-shortest",
+            str(path),
+        ],
+        check=True,
+    )
+
+
+def test_filter_dead_streams_drops_packetless_streams(monkeypatch):
+    monkeypatch.setattr(convert, "stream_packet_counts", lambda f: {0: 100, 1: 50, 3: 200})
+    vids = [(0, "hevc", 1), (10, "hevc", 1)]
+    auds = [(1, "eng", 1), (11, "eng", 0)]
+    subs = [(3, "ass", "eng"), (13, "ass", "eng")]
+    fv, fa, fs = convert.filter_dead_streams(Path("/x.mkv"), vids, auds, subs)
+    assert fv == [(0, "hevc", 1)]
+    assert fa == [(1, "eng", 1)]
+    assert fs == [(3, "ass", "eng")]
+
+
+def test_filter_dead_streams_skips_single_video_scan(monkeypatch):
+    calls = []
+    monkeypatch.setattr(convert, "stream_packet_counts", lambda f: calls.append(f) or {})
+    vids = [(0, "hevc", 1)]
+    fv, fa, fs = convert.filter_dead_streams(Path("/x.mkv"), vids, [(1, "eng", 1)], [])
+    assert fv == vids
+    assert calls == []
+
+
+@requires_ffmpeg
+def test_validate_output_media_passes_healthy_file(tmp_path):
+    src = tmp_path / "src.mkv"
+    out = tmp_path / "out.mkv"
+    _make_sample(src, 2)
+    _make_sample(out, 2)
+    ok, err = convert.validate_output_media(src, out)
+    assert ok, err
+
+
+@requires_ffmpeg
+def test_validate_output_media_fails_genuine_truncation(tmp_path):
+    src = tmp_path / "src.mkv"
+    out = tmp_path / "out.mkv"
+    _make_sample(src, 5)
+    _make_sample(out, 2)
+    ok, err = convert.validate_output_media(src, out)
+    assert not ok
+    assert "duration_mismatch" in err
+
+
+@requires_ffmpeg
+def test_validate_output_media_tolerates_inflated_source_header(tmp_path, monkeypatch):
+    src = tmp_path / "src.mkv"
+    out = tmp_path / "out.mkv"
+    _make_sample(src, 3)
+    _make_sample(out, 3)
+
+    real_duration = convert.get_media_duration_seconds
+    def fake_duration(file):
+        if file == src:
+            return (real_duration(src) or 0) + 3.0
+        return real_duration(file)
+
+    monkeypatch.setattr(convert, "get_media_duration_seconds", fake_duration)
+    ok, err = convert.validate_output_media(src, out)
+    assert ok, err
+
+
+@requires_ffmpeg
+def test_validate_output_media_tolerates_corrupt_copied_audio(tmp_path, monkeypatch):
+    src = tmp_path / "src.mkv"
+    out = tmp_path / "out.mkv"
+    _make_sample(src, 2)
+    _make_sample(out, 2)
+
+    real_run = subprocess.run
+    def fake_run(cmd, **kwargs):
+        if "0:a?" in cmd:
+            return types.SimpleNamespace(
+                returncode=183,
+                stderr="[aist#0:1/ac3 @ 0x1] Invalid data found when processing input",
+            )
+        return real_run(cmd, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    ok, err = convert.validate_output_media(src, out)
+    assert ok, err
 
 
 def test_select_audio_empty_allowed_keeps_all(monkeypatch):
