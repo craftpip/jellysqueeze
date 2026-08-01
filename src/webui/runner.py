@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 import sys
 import signal
 import uuid
@@ -20,6 +21,18 @@ def _load_runs() -> list[dict]:
 
 def _save_run(run_data: dict):
     state_db.save_run(run_data)
+
+
+_ANSI_ESC_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _is_ignorable_stderr(text: str) -> bool:
+    cleaned = _ANSI_ESC_RE.sub("", text)
+    if not cleaned:
+        return True
+    if cleaned.startswith("[") and ("█" in cleaned or "░" in cleaned):
+        return True
+    return False
 
 
 class RunManager:
@@ -144,6 +157,8 @@ class RunManager:
                 if not line:
                     break
                 text = line.decode("utf-8", errors="replace").rstrip("\n\r")
+                if _is_ignorable_stderr(text):
+                    continue
                 msg = {"type": "stderr", "data": text, "ts": time.time()}
                 self._buffer.append(msg)
                 if len(self._buffer) > self._max_buffer:

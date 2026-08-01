@@ -1,7 +1,10 @@
 import asyncio
+import io
+import json
 import shutil
 import subprocess
 import sys
+import threading
 import types
 from pathlib import Path
 
@@ -308,3 +311,81 @@ def test_failure_cooldown_skips_repeat_work_until_fingerprint_changes(tmp_path, 
     status3, msg3, _ = convert.convert_if_needed(src)
     assert status3 == "FAIL"
     assert msg3.startswith("validation_failed(cpu):")
+
+
+def test_emit_json_is_thread_safe(monkeypatch):
+    buf = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", buf)
+    monkeypatch.setattr(convert, "JSON_MODE", True)
+
+    def worker():
+        for i in range(50):
+            convert.emit_json("test", i=i, s="x" * 20)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    lines = [ln for ln in buf.getvalue().splitlines() if ln]
+    assert len(lines) == 400
+    for ln in lines:
+        data = json.loads(ln)
+        assert data["type"] == "test"
+
+
+def _run_json_scan(tmp_path, monkeypatch, workers):
+    d = tmp_path / "media"
+    d.mkdir()
+    _make_sample(d / "a.mkv", 2)
+    _make_sample(d / "b.mkv", 2)
+
+    out = io.StringIO()
+    err = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr(sys, "stderr", err)
+    monkeypatch.setattr(convert, "JSON_MODE", True)
+
+    ok, skip, fail, _saved = convert.main(str(d), workers=workers)
+    return out.getvalue(), err.getvalue(), ok, skip, fail
+
+
+def _assert_clean_json_run(stdout, stderr, ok, skip, fail):
+    assert ok == 0 and fail == 0
+    assert skip == 2
+    assert stderr == "", f"expected no terminal/bar output on stderr, got: {stderr!r}"
+    lines = [ln for ln in stdout.splitlines() if ln]
+    assert lines, "expected structured JSON output on stdout"
+    results = []
+    for ln in lines:
+        data = json.loads(ln)
+        assert data.get("type") in {
+            "run_status", "run_folder", "progress", "result", "summary", "overall_progress",
+        }, f"unparseable/unknown event line: {ln!r}"
+        if data.get("type") == "result":
+            results.append(data)
+    assert len(results) == 2
+    assert {r["status"] for r in results} == {"SKIP"}
+
+
+@requires_ffmpeg
+def test_parallel_json_mode_emits_no_terminal_bars(tmp_path, monkeypatch):
+    stdout, stderr, ok, skip, fail = _run_json_scan(tmp_path, monkeypatch, 2)
+    _assert_clean_json_run(stdout, stderr, ok, skip, fail)
+
+
+@requires_ffmpeg
+def test_sequential_json_mode_emits_no_terminal_bars(tmp_path, monkeypatch):
+    stdout, stderr, ok, skip, fail = _run_json_scan(tmp_path, monkeypatch, 1)
+    _assert_clean_json_run(stdout, stderr, ok, skip, fail)
+
+
+def test_runner_drops_ignorable_stderr_lines():
+    from webui.runner import _is_ignorable_stderr
+
+    assert _is_ignorable_stderr("")
+    assert _is_ignorable_stderr("\x1b[1A\x1b[J")
+    assert _is_ignorable_stderr("\x1b[1A\x1b[J[██░░░░] 1/10  OK=1")
+    assert not _is_ignorable_stderr("2026-07-31 10:00:00 | INFO | Checking: /media/a.mkv")
+    assert not _is_ignorable_stderr("{not json but starts with brace}")

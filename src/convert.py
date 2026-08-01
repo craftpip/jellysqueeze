@@ -191,7 +191,8 @@ def print_progress(current: int, total: int, ok_cnt: int, skip_cnt: int, fail_cn
             eta = f"ETA {eta_s/3600:.1f}h"
     else:
         eta = ""
-    log.info(f"[{bar}] {done}/{total}  OK={ok_cnt}  SK={skip_cnt}  FL={fail_cnt}  {eta}")
+    if not JSON_MODE:
+        log.info(f"[{bar}] {done}/{total}  OK={ok_cnt}  SK={skip_cnt}  FL={fail_cnt}  {eta}")
     emit_json("overall_progress", completed=done, total=total, ok=ok_cnt, skip=skip_cnt, fail=fail_cnt)
 
 
@@ -420,9 +421,16 @@ def save_probe_cache(cache: dict[str, dict]) -> None:
     state_db.save_probe_cache(cache)
 
 
+_emit_lock = threading.Lock()
+
+
 def emit_json(type_: str, **data):
-    if JSON_MODE:
-        print(json.dumps({"type": type_, **data}, default=str), flush=True)
+    if not JSON_MODE:
+        return
+    line = json.dumps({"type": type_, **data}, default=str) + "\n"
+    with _emit_lock:
+        sys.stdout.write(line)
+        sys.stdout.flush()
 
 
 def load_config() -> dict | None:
@@ -2270,8 +2278,8 @@ def main(
             if _progress_lines > 0:
                 sys.stderr.write(f"\033[{_progress_lines}A\033[J")
                 sys.stderr.flush()
-        sys.stderr.write("\n")
-        sys.stderr.flush()
+            sys.stderr.write("\n")
+            sys.stderr.flush()
     else:
         done_lock = threading.Lock()
         probe_cache_snapshot = dict(probe_cache)
@@ -2401,18 +2409,21 @@ def main(
         progress_start = time.perf_counter()
         progress_done = False
 
-        draw_progress_bar(0, total, 0, 0, 0, progress_start, {})
+        if JSON_MODE:
+            ticker = None
+        else:
+            draw_progress_bar(0, total, 0, 0, 0, progress_start, {})
 
-        def progress_ticker():
-            while not progress_done:
-                progress_changed.wait(0.5)
-                progress_changed.clear()
-                with progress_cb_lock:
-                    snap = dict(converting_progress)
-                draw_progress_bar(par_completed, total, par_ok, par_skip, par_fail, progress_start, snap)
+            def progress_ticker():
+                while not progress_done:
+                    progress_changed.wait(0.5)
+                    progress_changed.clear()
+                    with progress_cb_lock:
+                        snap = dict(converting_progress)
+                    draw_progress_bar(par_completed, total, par_ok, par_skip, par_fail, progress_start, snap)
 
-        ticker = threading.Thread(target=progress_ticker, daemon=True)
-        ticker.start()
+            ticker = threading.Thread(target=progress_ticker, daemon=True)
+            ticker.start()
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {executor.submit(process_file, i, f): f for i, f in enumerate(files, 1)}
@@ -2468,10 +2479,11 @@ def main(
                     save_probe_cache(probe_cache)
                     probe_cache_dirty = False
 
-                with progress_cb_lock:
-                    snap = dict(converting_progress)
-                draw_progress_bar(par_completed, total, par_ok, par_skip, par_fail, progress_start, snap)
-                progress_changed.set()
+                if not JSON_MODE:
+                    with progress_cb_lock:
+                        snap = dict(converting_progress)
+                    draw_progress_bar(par_completed, total, par_ok, par_skip, par_fail, progress_start, snap)
+                    progress_changed.set()
 
                 now = time.perf_counter()
                 if now - progress_last_print >= 5 or par_completed == total:
@@ -2479,10 +2491,11 @@ def main(
                     progress_last_print = now
 
         progress_done = True
-        ticker.join(timeout=3)
-        if _progress_lines > 0:
-            sys.stderr.write(f"\033[{_progress_lines}A\033[J")
-            sys.stderr.flush()
+        if not JSON_MODE:
+            ticker.join(timeout=3)
+            if _progress_lines > 0:
+                sys.stderr.write(f"\033[{_progress_lines}A\033[J")
+                sys.stderr.flush()
         ok, skip, fail = par_ok, par_skip, par_fail
 
     if probe_cache_dirty:

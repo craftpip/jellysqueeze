@@ -38,6 +38,27 @@ export default function RunDetail() {
   const wsRef = useRef(null)
   const pollRef = useRef(null)
   const outputRef = useRef(null)
+  const pendingLinesRef = useRef([])
+  const flushTimerRef = useRef(null)
+  const lastRenderedRef = useRef('')
+
+  const appendLine = (d) => {
+    const pending = pendingLinesRef.current
+    const last = pending.length ? pending[pending.length - 1] : lastRenderedRef.current
+    if (last === d) return
+    pending.push(d)
+  }
+
+  const flushLines = () => {
+    const pending = pendingLinesRef.current
+    if (!pending.length) return
+    pendingLinesRef.current = []
+    setLines(prev => {
+      const merged = prev.concat(pending).slice(-MAX_LINES)
+      lastRenderedRef.current = merged.length ? merged[merged.length - 1] : ''
+      return merged
+    })
+  }
 
   useEffect(() => {
     let mounted = true
@@ -108,13 +129,33 @@ export default function RunDetail() {
                   setRunStatus({ phase: p.phase || '', message: p.message || '' })
                 } else if (p.type === 'run_folder' && p.root) {
                   setFolderTotals(prev => ({ ...prev, [p.root]: p.total || 0 }))
+                } else if (p.type === 'result' && p.file) {
+                  const entry = {
+                    file: p.file,
+                    status: p.status || 'FAIL',
+                    msg: p.msg || '',
+                    before: p.before || 0,
+                    after: p.after || 0,
+                  }
+                  setResults(prev => {
+                    const idx = prev.findIndex(r => r.file === p.file)
+                    if (idx === -1) return [...prev, entry]
+                    const next = prev.slice()
+                    next[idx] = entry
+                    return next
+                  })
+                  setActiveProgress(prev => {
+                    const next = { ...prev }
+                    delete next[p.file]
+                    return next
+                  })
                 }
               } catch (_) {}
             } else {
-              setLines(prev => [...prev, d].slice(-MAX_LINES))
+              appendLine(d)
             }
           } else if (msg.type === 'exit') {
-            setLines(prev => [...prev, '--- Process exited with code ' + msg.code + ' ---'].slice(-MAX_LINES))
+            appendLine('--- Process exited with code ' + msg.code + ' ---')
             setRunning(false)
             setExitCode(msg.code)
             setEndedAt(Date.now() / 1000)
@@ -123,8 +164,13 @@ export default function RunDetail() {
           }
         }
 
-        ws.onerror = () => { if (mounted) setLines(prev => [...prev, 'WebSocket error'].slice(-MAX_LINES)) }
-        ws.onclose = () => { if (mounted) setLines(prev => [...prev, 'Connection closed'].slice(-MAX_LINES)) }
+        ws.onerror = () => { if (mounted) appendLine('WebSocket error') }
+        ws.onclose = () => { if (mounted) appendLine('Connection closed') }
+
+        flushTimerRef.current = setInterval(() => {
+          if (!mounted) return
+          flushLines()
+        }, 200)
 
         pollRef.current = setInterval(async () => {
           if (!mounted) return
@@ -152,7 +198,10 @@ export default function RunDetail() {
     load()
 
     return () => {
+      flushLines()
+      pendingLinesRef.current = []
       mounted = false
+      if (flushTimerRef.current) clearInterval(flushTimerRef.current)
       if (wsRef.current) wsRef.current.close()
       if (pollRef.current) clearInterval(pollRef.current)
     }
