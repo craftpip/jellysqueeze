@@ -1,4 +1,4 @@
-# Media Convert Roadmap — ✅ ALL DONE
+# JellySqueeze Roadmap — ✅ ALL DONE
 
 All features described below are now implemented. See AGENTS.md and `config.yml.example` for usage.
 
@@ -61,7 +61,7 @@ What it does:
 Cron example:
 
 ```cron
-0 */6 * * * cd /home/boniface/www/media-convert-for-jellyfin && python convert.py --jellyfin-recent --libraries Shows,Movies,Torrents --since-hours 72
+0 */6 * * * cd /home/boniface/www/jellysqueeze && python convert.py --jellyfin-recent --libraries Shows,Movies,Torrents --since-hours 72
 ```
 
 ## Config File
@@ -244,7 +244,7 @@ Console output should be human-friendly and explain decisions.
 Startup example:
 
 ```text
-Media Convert for Jellyfin
+JellySqueeze
 
 Mode: Jellyfin recent
 Libraries: Shows, Movies, Torrents

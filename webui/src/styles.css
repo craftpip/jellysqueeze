@@ -4,6 +4,8 @@ body{background:#121212;color:#e0e0e0;font-family:'Segoe UI',system-ui,-apple-sy
 .topbar{display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid #333;background:#1a1a1a;flex-shrink:0;height:48px}
 .topbar-left{display:flex;align-items:center;gap:16px;flex:1;min-width:0}
 .topbar-left h1{font-size:14px;font-weight:600;color:#fff;white-space:nowrap}
+.logo-icon{color:#4c9aff;flex-shrink:0;display:block}
+.brand{display:flex;align-items:center;gap:6px;min-width:0;flex-shrink:0}
 .nav{list-style:none;display:flex;align-items:center;gap:2px;padding:0}
 .nav li{padding:0;cursor:pointer;color:#999;display:flex;align-items:center;font-size:13px;transition:all .15s}
 .nav li:hover{color:#ccc}
@@ -145,3 +147,49 @@ td.file,.file-ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap
 .modal-panel{background:#1e1e1e;border:1px solid #333;border-radius:8px;padding:20px;width:100%;max-width:460px}
 .modal-panel h3{font-size:14px;font-weight:600;color:#ccc;margin-bottom:14px}
 .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:4px}
+
+/* Responsive */
+.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.row2{display:flex;gap:28px;align-items:flex-start}
+.row2>.col-main{flex:3;min-width:0}
+.row2>.col-side{flex:1;min-width:0}
+.progress-row{display:flex;align-items:center;gap:8px}
+.progress-label{min-width:82px}
+.progress-pct{min-width:150px;text-align:right}
+.progress-state{min-width:50px}
+.progress-meta{min-width:140px;text-align:right}
+.progress-tag{min-width:100px;text-align:center}
+.progress-count{min-width:100px;text-align:right}
+.modal-panel.wide{max-width:520px}
+.fixed-scroll{min-width:640px}
+
+@media (max-width:900px){
+  .row2{flex-direction:column}
+  .run-detail-grid{flex-direction:column}
+  .topbar{flex-wrap:wrap;height:auto;padding:0 12px}
+  .topbar-stats{order:3;width:100%;justify-content:flex-start;padding:6px 0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .stats-grid{flex-wrap:wrap;gap:20px}
+  .dash-actions{flex-wrap:wrap;gap:8px}
+  .filter-input{width:140px}
+  .table-wrap table:not(.fixed-scroll){min-width:max-content}
+  th,td{white-space:nowrap}
+}
+
+@media (max-width:640px){
+  .content{padding:12px}
+  .topbar-left{flex-wrap:wrap;gap:8px}
+  .nav{order:3;width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:6px}
+  .nav li{flex-shrink:0}
+  .nav li a{white-space:nowrap}
+  .modal-overlay{padding:16px 12px}
+  .modal-panel,.modal-panel.wide{max-width:100%}
+  .dash-header{flex-wrap:wrap;row-gap:8px}
+  .cell-actions{white-space:normal}
+  .progress-row{flex-wrap:wrap}
+  .progress-pct,.progress-meta{flex:1 0 100%;text-align:right;min-width:0}
+  .stat-block .num{font-size:20px}
+  h2{font-size:14px}
+  input,select,textarea,.filter-input,.run-filter{font-size:16px}
+  .path-item,.detail-row .value{overflow-wrap:anywhere;word-break:break-word}
+}

@@ -3,12 +3,12 @@
 # Same device mount as Intel, but with LIBVA_DRIVER_NAME=radeonsi.
 
 services:
-  media-convert:
+  jellysqueeze-amd:
     build:
       context: .
       dockerfile: Dockerfile.amd
-    image: media-convert-for-jellyfin:amd
-    container_name: media-convert-amd
+    image: jellysqueeze:amd
+    container_name: jellysqueeze-amd
     restart: unless-stopped
     ports:
       - "${WEBUI_PORT:-8080}:8080"

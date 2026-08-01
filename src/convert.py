@@ -742,7 +742,7 @@ def print_startup_banner(
     workers: int = 1,
 ):
     threshold = max_br or MAX_BR
-    print(f"Media Convert for Jellyfin")
+    print(f"JellySqueeze")
     print(f"  Mode:      {mode}")
     if libraries:
         print(f"  Libraries: {', '.join(libraries)}")

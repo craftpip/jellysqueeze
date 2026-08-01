@@ -1,10 +1,10 @@
 services:
-  media-convert:
+  jellysqueeze:
     build:
       context: .
       dockerfile: Dockerfile.nvidia
-    image: media-convert-for-jellyfin:nvidia
-    container_name: media-convert
+    image: jellysqueeze:nvidia
+    container_name: jellysqueeze
     restart: unless-stopped
     init: true
     runtime: nvidia

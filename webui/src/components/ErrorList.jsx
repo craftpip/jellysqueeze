@@ -37,7 +37,7 @@ export default function ErrorList() {
       {!errors.length ? (
         <div className="empty">No errors found.</div>
       ) : (
-        <table className="libs-table errors-table" style={{ tableLayout: 'fixed' }}><thead><tr><th style={{ width: 170 }}>Date</th><th style={{ width: 100 }}>Library</th><th style={{ width: 220 }}>File</th><th>Error</th><th style={{ width: 70 }}></th></tr></thead><tbody>
+        <div className="table-wrap"><table className="libs-table errors-table fixed-scroll" style={{ tableLayout: 'fixed' }}><thead><tr><th style={{ width: 170 }}>Date</th><th style={{ width: 100 }}>Library</th><th style={{ width: 220 }}>File</th><th>Error</th><th style={{ width: 70 }}></th></tr></thead><tbody>
           {errors.map((e, i) => {
             const full = e.started_at ? new Date(e.started_at * 1000).toLocaleString() : '—'
             const fileName = e.file.split(/[\\/]/).pop()
@@ -51,7 +51,7 @@ export default function ErrorList() {
               </tr>
             )
           })}
-        </tbody></table>
+        </tbody></table></div>
       )}
     </>
   )

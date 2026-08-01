@@ -1,10 +1,10 @@
 services:
-  media-convert:
+  jellysqueeze-nvidia:
     build:
       context: .
       dockerfile: Dockerfile.nvidia
-    image: media-convert-for-jellyfin:nvidia
-    container_name: media-convert-nvidia
+    image: jellysqueeze:nvidia
+    container_name: jellysqueeze-nvidia
     restart: unless-stopped
     ports:
       - "${WEBUI_PORT:-8080}:8080"

@@ -103,7 +103,7 @@ export default function Schedules() {
       {!schedules.length ? (
         <div className="empty">No schedules yet. Create one to run a library scan or a recently-added check on a timer.</div>
       ) : (
-        <table className="libs-table"><thead><tr><th>Name</th><th>Schedule</th><th>Run</th><th>Next run</th><th>Status</th><th>Last run</th><th></th></tr></thead><tbody>
+        <div className="table-wrap"><table className="libs-table"><thead><tr><th>Name</th><th>Schedule</th><th>Run</th><th>Next run</th><th>Status</th><th>Last run</th><th></th></tr></thead><tbody>
           {schedules.map(s => (
             <tr key={s.name}>
               <td><span className="lib-name">{s.name}</span></td>
@@ -132,7 +132,7 @@ export default function Schedules() {
               </td>
             </tr>
           ))}
-        </tbody></table>
+        </tbody></table></div>
       )}
       {modalOpen && <ScheduleForm
         schedule={editing}
@@ -203,7 +203,7 @@ function ScheduleForm({ schedule, libraries, onClose, onSaved, onError }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-panel" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+      <div className="modal-panel wide" onClick={e => e.stopPropagation()}>
         <h3>{schedule ? 'Edit schedule' : 'New schedule'}</h3>
         {error && <div className="error-message">{error}</div>}
         <form onSubmit={submit}>

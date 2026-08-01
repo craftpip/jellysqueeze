@@ -55,7 +55,7 @@ export default function RunHistory() {
       ) : !filtered.length ? (
         <div className="empty">No runs match the filter.</div>
       ) : (
-        <table className="libs-table"><thead><tr><th>Date</th><th>Library</th><th>OK</th><th>Skip</th><th>Fail</th><th>Saved</th><th>Status</th><th></th></tr></thead><tbody>
+        <div className="table-wrap"><table className="libs-table"><thead><tr><th>Date</th><th>Library</th><th>OK</th><th>Skip</th><th>Fail</th><th>Saved</th><th>Status</th><th></th></tr></thead><tbody>
           {filtered.map(r => {
             const s = r.summary || {}
             const running = r.running
@@ -75,7 +75,7 @@ export default function RunHistory() {
               </tr>
             )
           })}
-        </tbody></table>
+        </tbody></table></div>
       )}
     </>
   )

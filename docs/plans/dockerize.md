@@ -2,7 +2,7 @@
 
 ## Overview
 
-Package `media-convert-for-jellyfin` as a Docker image so users don't need to manually install Python, ffmpeg, or GPU drivers on the host. The Web UI auto-runs when the container starts — just point a browser at it.
+Package `jellysqueeze` as a Docker image so users don't need to manually install Python, ffmpeg, or GPU drivers on the host. The Web UI auto-runs when the container starts — just point a browser at it.
 
 One Dockerfile per GPU variant (each uses a different `jrottenberg/ffmpeg` ffmpeg source), four compose files:
 
@@ -144,12 +144,12 @@ ENTRYPOINT ["/venv/bin/python", "-m", "uvicorn", "webui.main:app", "--host", "0.
 
 ```yaml
 services:
-  media-convert:
+  jellysqueeze:
     build:
       context: .
       dockerfile: Dockerfile.cpu
-    image: media-convert-for-jellyfin:cpu
-    container_name: media-convert
+    image: jellysqueeze:cpu
+    container_name: jellysqueeze
     restart: unless-stopped
     ports:
       - "${WEBUI_PORT:-8080}:8080"
@@ -167,12 +167,12 @@ No GPU config needed. Works anywhere.
 
 ```yaml
 services:
-  media-convert:
+  jellysqueeze-nvidia:
     build:
       context: .
       dockerfile: Dockerfile.nvidia
-    image: media-convert-for-jellyfin:nvidia
-    container_name: media-convert-nvidia
+    image: jellysqueeze:nvidia
+    container_name: jellysqueeze-nvidia
     restart: unless-stopped
     ports:
       - "${WEBUI_PORT:-8080}:8080"
@@ -194,12 +194,12 @@ Host needs: NVIDIA driver + `nvidia-container-toolkit`.
 
 ```yaml
 services:
-  media-convert:
+  jellysqueeze-intel:
     build:
       context: .
       dockerfile: Dockerfile.intel
-    image: media-convert-for-jellyfin:intel
-    container_name: media-convert-intel
+    image: jellysqueeze:intel
+    container_name: jellysqueeze-intel
     restart: unless-stopped
     ports:
       - "${WEBUI_PORT:-8080}:8080"
@@ -223,12 +223,12 @@ Host needs: `intel-media-va-driver-non-free` on host kernel. The `render` GID (`
 
 ```yaml
 services:
-  media-convert:
+  jellysqueeze-amd:
     build:
       context: .
       dockerfile: Dockerfile.amd
-    image: media-convert-for-jellyfin:amd
-    container_name: media-convert-amd
+    image: jellysqueeze:amd
+    container_name: jellysqueeze-amd
     restart: unless-stopped
     ports:
       - "${WEBUI_PORT:-8080}:8080"

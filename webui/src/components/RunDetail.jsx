@@ -282,21 +282,19 @@ export default function RunDetail() {
     <>
       <button className="link-btn mb-8" onClick={() => navigate(-1)}>&#8592; Back</button>
       <div className="dash-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <h2 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
-            {library || 'Run'}
-            {running && (
-              <span className="status-running">
-                <span className="pulse-dot"></span>LIVE
-              </span>
-            )}
-          </h2>
-          <div className="dash-actions" style={{ gap: 12 }}>
-            <button className="link-btn" onClick={downloadLog}>&#8615; Log</button>
-            {running && (
-              <button className="link-btn" style={{color:'#e05050'}} onClick={stopRun} disabled={stopping}>&#9632; Stop</button>
-            )}
-          </div>
+        <h2 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+          {library || 'Run'}
+          {running && (
+            <span className="status-running">
+              <span className="pulse-dot"></span>LIVE
+            </span>
+          )}
+        </h2>
+        <div className="dash-actions" style={{ gap: 12 }}>
+          <button className="link-btn" onClick={downloadLog}>&#8615; Log</button>
+          {running && (
+            <button className="link-btn" style={{color:'#e05050'}} onClick={stopRun} disabled={stopping}>&#9632; Stop</button>
+          )}
         </div>
       </div>
       {error && <div className="error-message">{error}</div>}
@@ -317,10 +315,10 @@ export default function RunDetail() {
         <div className="run-detail-right" style={{ flex: 1, minWidth: 0 }}>
           {running && runTotal > 0 && (
             <div id="section-run-progress" style={{ marginBottom: 16 }}>
-              <div className="flex items-center gap-8">
-                <span className="text-muted" style={{ minWidth: 82 }}>Run Progress</span>
+              <div className="progress-row">
+                <span className="text-muted progress-label">Run Progress</span>
                 <span className="text-muted" style={{ flex: 1 }}>OK {okCount} / Skip {skipCount} / Fail {failCount}</span>
-                <span className="text-muted" style={{ minWidth: 150, textAlign: 'right' }}>{results.length} / {runTotal} ({runPct.toFixed(1)}%)</span>
+                <span className="text-muted progress-pct">{results.length} / {runTotal} ({runPct.toFixed(1)}%)</span>
               </div>
               <div style={{ height: 6, background: '#2a2a2a', borderRadius: 3, overflow: 'hidden', marginTop: 6 }}>
                 <div style={{ height: '100%', width: runPct + '%', background: '#66bb6a', borderRadius: 3, transition: 'width .3s ease' }}></div>
@@ -334,10 +332,10 @@ export default function RunDetail() {
                 const fileName = file.split(/[\\/]/).pop()
                 return (
                   <div key={file} style={{ marginTop: index ? 10 : 0 }}>
-                    <div className="flex items-center gap-8" style={{ marginBottom: 6 }}>
-                      <span className="text-muted" style={{ minWidth: 50 }}>{progress.finalizing ? 'Finalizing' : 'Encoding'}</span>
+                    <div className="progress-row" style={{ marginBottom: 6 }}>
+                      <span className="text-muted progress-state">{progress.finalizing ? 'Finalizing' : 'Encoding'}</span>
                       <span className="file-ellipsis" title={file}>{fileName}</span>
-                      <span className="text-muted" style={{ minWidth: 140, textAlign: 'right' }}>
+                      <span className="text-muted progress-meta">
                         {progress.finalizing
                           ? ''
                           : (progress.positionSeconds != null && progress.durationSeconds
@@ -372,12 +370,12 @@ export default function RunDetail() {
                 const label = root
                 return (
                   <div key={root} style={{ marginTop: 6 }}>
-                    <div className="flex items-center gap-8" style={{ marginBottom: 4 }}>
-                      <span className={'tag ' + status} style={{ minWidth: 100, textAlign: 'center' }}>
+                    <div className="progress-row" style={{ marginBottom: 4 }}>
+                      <span className={'tag ' + status + ' progress-tag'}>
                         {status === 'active' ? 'Encoding' : status === 'complete' ? 'Done' : 'Pending'}
                       </span>
                       <span className="file-ellipsis" title={root}>{label}</span>
-                      <span className="text-muted" style={{ minWidth: 100, textAlign: 'right' }}>{done} / {total}</span>
+                      <span className="text-muted progress-count">{done} / {total}</span>
                     </div>
                     <div style={{ height: 4, background: '#2a2a2a', borderRadius: 2, overflow: 'hidden' }}>
                       <div style={{ height: '100%', width: pct + '%', borderRadius: 2, transition: 'width .3s ease',
@@ -393,7 +391,7 @@ export default function RunDetail() {
 
       {results.length > 0 && (
         <div id="section-processed-files" style={{ marginBottom: 16 }}>
-          <div className="flex items-center gap-8 mb-8">
+          <div className="toolbar mb-8">
             <h3 style={{ flex: 1, margin: 0, fontSize: 14, fontWeight: 600, color: '#ccc' }}>Processed Files</h3>
             <input
               className="filter-input"
@@ -406,7 +404,7 @@ export default function RunDetail() {
             <button className={'btn outline sm' + (filterChecks.failed ? ' active' : '')} onClick={() => setFilterChecks(p => ({ ...p, failed: !p.failed }))}>Failed <span className="badge">{failCount}</span></button>
             <button className={'btn outline sm' + (filterChecks.skipped ? ' active' : '')} onClick={() => setFilterChecks(p => ({ ...p, skipped: !p.skipped }))}>Skipped <span className="badge">{skipCount}</span></button>
           </div>
-           <table className="libs-table" style={{ tableLayout: 'fixed' }}><thead><tr><th style={{ width: 70 }}>Status</th><th>File</th><th style={{ width: 200 }}>Result</th><th style={{ width: 80 }}>Saved</th></tr></thead><tbody>
+          <div className="table-wrap"><table className="libs-table fixed-scroll" style={{ tableLayout: 'fixed' }}><thead><tr><th style={{ width: 70 }}>Status</th><th>File</th><th style={{ width: 200 }}>Result</th><th style={{ width: 80 }}>Saved</th></tr></thead><tbody>
           {visibleResults.slice().reverse().map((r, i) => {
             const tag = r.status === 'OK' ? 'ok' : r.status === 'SKIP' ? 'skip' : 'fail'
             const saved2 = r.before && r.after ? ((r.before - r.after) / (1024 * 1024)).toFixed(1) + ' MB' : '—'
@@ -420,7 +418,7 @@ export default function RunDetail() {
             )
           })}
           {!visibleResults.length && <tr><td colSpan="4" className="text-muted">No matching files.</td></tr>}
-          </tbody></table>
+          </tbody></table></div>
         </div>
       )}
 

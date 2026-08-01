@@ -1,5 +1,5 @@
 {
-  "name": "media-convert-webui",
+  "name": "jellysqueeze-webui",
   "private": true,
   "type": "module",
   "scripts": {

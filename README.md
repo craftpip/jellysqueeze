@@ -1,4 +1,4 @@
-# media-convert-for-jellyfin
+# JellySqueeze
 
 Shrink your video library for Jellyfin (or any self-hosted media server) without the bloat. 🎬
 

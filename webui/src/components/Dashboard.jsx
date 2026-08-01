@@ -121,7 +121,7 @@ export default function Dashboard() {
               <button className="link-btn" onClick={() => navigate('/new-library')}>+ New Library</button>
             </div>
           </div>
-          <table className="libs-table"><thead><tr><th>Name</th><th>Last Run</th><th>Encoder</th><th>Bitrate</th><th>OK</th><th>Skip</th><th>Fail</th><th>Saved</th><th></th></tr></thead><tbody>
+          <div className="table-wrap"><table className="libs-table"><thead><tr><th>Name</th><th>Last Run</th><th>Encoder</th><th>Bitrate</th><th>OK</th><th>Skip</th><th>Fail</th><th>Saved</th><th></th></tr></thead><tbody>
             {libs.map(lib => {
               const p = lib.profile || {}
               const saved = lib.total_saved_mb > 0 ? (lib.total_saved_mb / 1024).toFixed(2) + ' GB' : '-'
@@ -161,7 +161,7 @@ export default function Dashboard() {
                 </tr>
               )
             })}
-          </tbody></table>
+          </tbody></table></div>
         </>
       )}
 

@@ -58,7 +58,7 @@ Reusable for both pages. **Done** (`RecentRunModal.jsx` + `.modal-overlay`/`.mod
 
 ### 5. Tests
 
-**Done.** All 33 tests pass (`docker exec media-convert python -m pytest src/test_convert.py -q`).
+**Done.** All 33 tests pass (`docker exec jellysqueeze python -m pytest src/test_convert.py -q`).
 
 - `src/test_convert.py`: added `build_convert_cmd` test asserting jellyfin_recent mapping:
   - `{mode:"jellyfin_recent", flags:{libraries:"Shows,Movies", since_hours:24}}` → `--jellyfin-recent --libraries Shows,Movies --since-hours 24`
@@ -95,7 +95,7 @@ Reusable for both pages. **Done** (`RecentRunModal.jsx` + `.modal-overlay`/`.mod
 
 ## Verification
 
-1. `docker exec media-convert python -m pytest src/test_convert.py -q` — all pass. **Done (36/36, incl. 2 new exclusivity tests + 1 files_total-retention test).**
+1. `docker exec jellysqueeze python -m pytest src/test_convert.py -q` — all pass. **Done (36/36, incl. 2 new exclusivity tests + 1 files_total-retention test).**
 2. Rebuild SPA, recreate container (or just `docker compose restart` since static is bind-mounted via whole-repo mount). **Done — both.**
 3. Browser: Dashboard → "Recently Added" → Run → RunDetail shows status events + results + progress bar with files_total denominator. **Done — 18 files, 2 already-done SKIPs, `2 / 18 (11.1%)` progress bar.**
 4. Browser: Library Detail → "Recently Added" → same, scoped to that library. **Done — modal locks to the current library (read-only).**

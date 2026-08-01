@@ -85,7 +85,7 @@ Add to `src/test_convert.py`:
 - Scheduler tick: fake config with a due schedule, mock `start_run` to assert it fires once and does not re-fire on the next tick; overlap `RuntimeError` → skipped and recorded.
 - API CRUD round-trip against `config.yml` (temp copy) — create, update, disable, delete.
 
-Run with: `docker exec media-convert python -m pytest src/test_convert.py -v`
+Run with: `docker exec jellysqueeze python -m pytest src/test_convert.py -v`
 
 ## Out of scope / notes
 

@@ -94,8 +94,8 @@ export default function Settings() {
   }
 
   return (
-    <form onSubmit={submit} style={{ display: 'flex', gap: 28, alignItems: 'flex-start' }}>
-      <div style={{ flex: 3, minWidth: 0 }}>
+    <form onSubmit={submit} className="row2">
+      <div className="col-main">
         {error && <div className="error-message">{error}</div>}
 
         <div style={s.section}>
@@ -202,7 +202,7 @@ export default function Settings() {
         </div>
       </div>
 
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="col-side">
         <div style={s.section}>
           <h3 style={s.h3}>System Info</h3>
           {sysinfo ? (

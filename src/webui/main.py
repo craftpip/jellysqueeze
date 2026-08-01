@@ -22,7 +22,7 @@ import convert as conv
 from webui.runner import start_run, get_run, get_active_runs, cleanup_run, stop_all_runs, _load_runs, RUNS_DIR
 from webui.scheduler import Scheduler, validate_schedule, schedule_to_req
 
-app = FastAPI(title="Media Convert for Jellyfin — Web UI")
+app = FastAPI(title="JellySqueeze — Web UI")
 
 scheduler = Scheduler()
 

@@ -1,4 +1,4 @@
-# media-convert-for-jellyfin — LLM Guide
+# JellySqueeze — LLM Guide
 
 ## Project Overview
 
@@ -442,7 +442,7 @@ Fallback attempts cover: GPU decode failures, unsupported subtitle streams, cove
 - **Don't be hyperactive and rush through tasks.** Slow down. Read carefully. Ask before doing destructive things like deleting files or moving data.
 - **Don't assume cleanup is safe.** `rm -rf` on user data is never safe without explicit confirmation.
 - **When restructuring paths (e.g. moving files to new directories), keep the old files in place** until the user confirms the new setup works and is ready to clean up.
-- **Don't run npm install or npm commands on the host.** The running `media-convert` container should be used for all validation (tests, syntax checks, imports). The `webui/` React app is already built and its output lives in `src/webui/static/`. If you need to rebuild, have the user do it inside the container or in their own environment.
+- **Don't run npm install or npm commands on the host.** The running `jellysqueeze` container should be used for all validation (tests, syntax checks, imports). The `webui/` React app is already built and its output lives in `src/webui/static/`. If you need to rebuild, have the user do it inside the container or in their own environment.
 
 ## Safety
 
@@ -463,7 +463,7 @@ Fallback attempts cover: GPU decode failures, unsupported subtitle streams, cove
 
 - 9 tests total, all pass
 - State DB tests, conversion option tests, run manager lifecycle tests
-- Run with: `docker exec media-convert python -m pytest src/test_convert.py -v`
+- Run with: `docker exec jellysqueeze python -m pytest src/test_convert.py -v`
 
 ## Commands
 
@@ -478,11 +478,11 @@ Fallback attempts cover: GPU decode failures, unsupported subtitle streams, cove
 | `python convert.py --jellyfin-recent --libraries Shows,Movies --since-hours 72` | Check recently added Jellyfin items |
 | `python convert.py --all --dry-run` | Preview without modifying files |
 | `python convert.py --min-savings 10` | Require 10% minimum savings to keep converted file |
-| `docker exec media-convert python -m pytest src/test_convert.py -v` | Run tests |
+| `docker exec jellysqueeze python -m pytest src/test_convert.py -v` | Run tests |
 | `docker compose build` | Build CPU image |
 | `docker compose -f docker-compose.nvidia.yml build` | Build NVIDIA image |
 | `docker compose -f docker-compose.intel.yml build` | Build Intel QSV image |
 | `docker compose -f docker-compose.amd.yml build` | Build AMD VA-API image (WIP/untested) |
-| `docker run --rm --entrypoint /venv/bin/python media-convert-for-jellyfin:cpu -c "..."` | Smoke-test container without running uvicorn |
+| `docker run --rm --entrypoint /venv/bin/python jellysqueeze:cpu -c "..."` | Smoke-test container without running uvicorn |
 | `npm run build` | Build SPA (in webui/) |
 | `docker compose up -d` | Start container with rebuilt image |

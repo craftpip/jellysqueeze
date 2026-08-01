@@ -83,9 +83,8 @@ export default function LibraryDetail() {
     <>
       <button className="link-btn mb-8" onClick={() => navigate('/')}>&#8592; Back</button>
       <div className="dash-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <h2 style={{ margin: 0 }}>{name}</h2>
-          <div className="dash-actions" style={{ gap: 12 }}>
+        <h2 style={{ margin: 0 }}>{name}</h2>
+        <div className="dash-actions" style={{ gap: 12 }}>
           {activeRun ? (
             <>
               <span className="tag running">Running</span>
@@ -98,13 +97,12 @@ export default function LibraryDetail() {
           <button className="link-btn" onClick={() => setRecentOpen(true)}>Recently Added</button>
           <button className="link-btn" onClick={() => navigate('/edit-library/' + encodeURIComponent(name))}>Edit</button>
           <button className="link-btn" style={{color:'#e05050'}} onClick={deleteLib}>Delete</button>
-          </div>
         </div>
       </div>
       {error && <div className="error-message">{error}</div>}
 
-      <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start' }}>
-        <div style={{ flex: 3, minWidth: 0 }}>
+      <div className="row2">
+        <div className="col-main">
           <div style={s.section}>
             <h3 style={s.h3}>Profile</h3>
             <div className="detail-row"><span className="label">Encoder</span><span className="value" style={{fontFamily:'monospace',fontSize:12}}>{p.encoder || 'nvidia'}</span></div>
@@ -133,7 +131,7 @@ export default function LibraryDetail() {
           </div>
         </div>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="col-side">
           <div style={s.section}>
             <h3 style={s.h3}>Lifetime</h3>
             <div className="detail-row"><span className="label">Total runs</span><span className="value" style={{fontFamily:'monospace',fontSize:12}}>{runs.length}</span></div>
@@ -158,7 +156,7 @@ export default function LibraryDetail() {
         {!runs.length ? (
           <div className="empty">No runs yet.</div>
         ) : (
-          <table className="libs-table"><thead><tr><th>Date</th><th>OK</th><th>Skip</th><th>Fail</th><th>Saved</th><th>Status</th><th></th></tr></thead><tbody>
+          <div className="table-wrap"><table className="libs-table"><thead><tr><th>Date</th><th>OK</th><th>Skip</th><th>Fail</th><th>Saved</th><th>Status</th><th></th></tr></thead><tbody>
             {runs.map(r => {
               const rs = r.summary || {}
               const date = r.started_at ? new Date(r.started_at * 1000).toLocaleString() : '—'
@@ -194,7 +192,7 @@ export default function LibraryDetail() {
                 </tr>
               )
             })}
-          </tbody></table>
+          </tbody></table></div>
         )}
       </div>
 

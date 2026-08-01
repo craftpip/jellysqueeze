@@ -174,8 +174,8 @@ export default function LibraryForm() {
     (parseInt(form.minimum_savings_percent) || 10) !== base.savings
 
   return (
-    <form onSubmit={submit} style={{ display: 'flex', gap: 28, alignItems: 'flex-start' }}>
-      <div style={{ flex: 3, minWidth: 0 }}>
+    <form onSubmit={submit} className="row2">
+      <div className="col-main">
         <button className="link-btn" style={{ marginBottom: 20 }} onClick={() => navigate(isEdit ? '/library-detail/' + encodeURIComponent(name) : '/')}>&#8592; Back</button>
         {error && <div className="error-message">{error}</div>}
         {saved && <div className="error-message" style={{ borderColor: '#1a3a1a', background: '#1a3a1a', color: '#33ff33' }}>Saved! Redirecting...</div>}
@@ -293,7 +293,7 @@ export default function LibraryForm() {
         </div>
       </div>
 
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="col-side">
         <div style={s.section}>
           <h3 style={s.h3}>Summary</h3>
           <div className="detail-row">
