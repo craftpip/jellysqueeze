@@ -253,7 +253,7 @@ def api_get_library(name: str):
     if not lib_info:
         raise HTTPException(status_code=404, detail=f"library '{name}' not found")
 
-    paths, profile, _lib = lib_info
+    paths, profile, lib = lib_info
     runs = [_run_list_entry(r) for r in _load_runs() if r.get("library") == name]
 
     seen = set()
@@ -290,6 +290,11 @@ def api_get_library(name: str):
                     runs.insert(0, entry)
                 seen.add(ar["run_id"])
                 break
+
+    profile = dict(profile or {})
+    for key in ("workers", "ignore_paths", "ignore_dirs"):
+        if key in lib:
+            profile[key] = lib[key]
 
     return {
         "name": name,

@@ -19,6 +19,9 @@ const encoderHints = {
   cpu: 'libx264 — software encode, highest quality, slower',
 }
 
+const normLangs = (s) =>
+  (s || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean).sort().join(',')
+
 export default function LibraryForm() {
   const { setPageTitle } = useOutletContext()
   const { name } = useParams()
@@ -40,6 +43,7 @@ export default function LibraryForm() {
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')
   const pathTimer = useRef(null)
+  const baselineBr = useRef(null)
 
   useEffect(() => {
     if (!isEdit) { setLoaded(true); return }
@@ -58,6 +62,14 @@ export default function LibraryForm() {
         keep_subtitle_langs: (p.keep_subtitle_langs || []).join(','),
       })
       setPaths((data.paths || []).map(p => ({ path: p, valid: true })))
+      baselineBr.current = {
+        target: parseInt(p.target_bitrate) || 3000,
+        max: parseInt(p.max_bitrate) || 3300,
+        encoder: (p.encoder || 'nvidia').trim().toLowerCase(),
+        audio: normLangs((p.keep_audio_langs || []).join(',')),
+        subtitles: normLangs((p.keep_subtitle_langs || []).join(',')),
+        savings: parseInt(p.minimum_savings_percent) || 10,
+      }
       setLoaded(true)
     }).catch(err => { setError(err.message); setLoaded(true) })
   }, [name, navigate])
@@ -145,12 +157,35 @@ export default function LibraryForm() {
   const targetBr = form.target_bitrate || 3000
   const maxBr = form.max_bitrate || 3300
 
+  const base = baselineBr.current || {
+    target: 3000,
+    max: 3300,
+    encoder: 'nvidia',
+    audio: '',
+    subtitles: '',
+    savings: 10,
+  }
+  const cacheInvalidated =
+    parseInt(targetBr) !== base.target ||
+    parseInt(maxBr) !== base.max ||
+    form.encoder.trim().toLowerCase() !== base.encoder ||
+    normLangs(form.keep_audio_langs) !== base.audio ||
+    normLangs(form.keep_subtitle_langs) !== base.subtitles ||
+    (parseInt(form.minimum_savings_percent) || 10) !== base.savings
+
   return (
     <form onSubmit={submit} style={{ display: 'flex', gap: 28, alignItems: 'flex-start' }}>
       <div style={{ flex: 3, minWidth: 0 }}>
         <button className="link-btn" style={{ marginBottom: 20 }} onClick={() => navigate(isEdit ? '/library-detail/' + encodeURIComponent(name) : '/')}>&#8592; Back</button>
         {error && <div className="error-message">{error}</div>}
         {saved && <div className="error-message" style={{ borderColor: '#1a3a1a', background: '#1a3a1a', color: '#33ff33' }}>Saved! Redirecting...</div>}
+        {cacheInvalidated && (
+          <div className="info-message">
+            Changing conversion settings (target/max bitrate, encoder, audio/subtitle languages, or
+            min savings) invalidates the probe cache. The next scan of this library will re-probe
+            every file from scratch.
+          </div>
+        )}
 
         <div style={s.section}>
           <h3 style={s.h3}>General</h3>
