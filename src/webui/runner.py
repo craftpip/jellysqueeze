@@ -48,6 +48,7 @@ class RunManager:
         self._results: list[dict] = []
         self._summary: dict | None = None
         self._folder_totals: dict[str, int] = {}
+        self._run_status: dict | None = None
         self._library: str | None = None
         self._history_saved: bool = False
         self._start_time: float = 0.0
@@ -82,6 +83,10 @@ class RunManager:
     @property
     def folder_totals(self) -> dict[str, int]:
         return dict(self._folder_totals)
+
+    @property
+    def run_status(self) -> dict | None:
+        return self._run_status
 
     def subscribe(self, listener_id: str, callback: Callable):
         self._listeners[listener_id] = callback
@@ -121,6 +126,7 @@ class RunManager:
         self._results = []
         self._summary = None
         self._folder_totals = {}
+        self._run_status = None
         self._library = self._extract_library(cmd)
         self._history_saved = False
         self._stop_requested = False
@@ -193,6 +199,11 @@ class RunManager:
                 self._folder_totals[str(data["root"])] = int(data.get("total") or 0)
             except (TypeError, ValueError):
                 pass
+        elif t == "run_status":
+            prev = self._run_status or {}
+            if "files_total" in prev and "files_total" not in data:
+                data["files_total"] = prev["files_total"]
+            self._run_status = data
 
     def _save_run_history(self, summary: dict):
         buffer_snapshot = list(self._buffer)
@@ -205,6 +216,7 @@ class RunManager:
             "results": self._results,
             "folder_totals": self._folder_totals,
             "summary": summary,
+            "run_status": self._run_status,
             "output": buffer_snapshot,
             "terminal_output": list(self._terminal_buffer),
         }
@@ -279,9 +291,8 @@ async def start_run(cmd: list[str]) -> str:
         active_libraries = {active.library for active in _managers.values() if active.running}
         exclusive_modes = {None, "all", "jellyfin-recent"}
         if (
-            requested_library in exclusive_modes
-            or active_libraries & exclusive_modes
-            or requested_library in active_libraries
+            requested_library in active_libraries
+            or (active_libraries and (requested_library in exclusive_modes or active_libraries & exclusive_modes))
         ):
             raise RuntimeError("A conversion run is already active for this library")
         run_id = await mgr.start(cmd)

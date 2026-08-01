@@ -87,6 +87,7 @@ export default function RunDetail() {
       setLines(initialLines)
       setResults(buf.results || [])
       setFolderTotals(buf.folder_totals || {})
+      setRunStatus(buf.run_status || { phase: '', message: '' })
       setLibrary(buf.library || '')
       setSummary(buf.summary || {})
       setStartedAt(buf.started_at || null)
@@ -126,7 +127,11 @@ export default function RunDetail() {
                     return next
                   })
                 } else if (p.type === 'run_status') {
-                  setRunStatus({ phase: p.phase || '', message: p.message || '' })
+                  setRunStatus(prev => ({
+                    phase: p.phase || '',
+                    message: p.message || '',
+                    files_total: p.files_total != null ? p.files_total : (prev.files_total || 0),
+                  }))
                 } else if (p.type === 'run_folder' && p.root) {
                   setFolderTotals(prev => ({ ...prev, [p.root]: p.total || 0 }))
                 } else if (p.type === 'result' && p.file) {
@@ -184,6 +189,7 @@ export default function RunDetail() {
           if (!st) return
           setResults(st.results || [])
           setSummary(st.summary || {})
+          setRunStatus(st.run_status || { phase: '', message: '' })
           if (st.started_at) setStartedAt(st.started_at)
           if (!st.running && mounted) {
             clearInterval(pollRef.current)
@@ -248,7 +254,8 @@ export default function RunDetail() {
   const endedStr = endedAt ? new Date(endedAt * 1000).toLocaleString() : '—'
 
   const activeFiles = Object.entries(activeProgress)
-  const runTotal = Object.values(folderTotals).reduce((sum, total) => sum + total, 0)
+  const folderTotal = Object.values(folderTotals).reduce((sum, total) => sum + total, 0)
+  const runTotal = folderTotal > 0 ? folderTotal : (runStatus.files_total || 0)
   const runPct = runTotal > 0 ? results.length / runTotal * 100 : 0
   const visibleResults = results.filter(r => {
     if (r.status === 'OK' && !filterChecks.done) return false

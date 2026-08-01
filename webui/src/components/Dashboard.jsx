@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
 import { api, relTime } from '../api'
+import RecentRunModal from './RecentRunModal'
 
 export default function Dashboard() {
   const { setPageTitle } = useOutletContext()
@@ -9,6 +10,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [runProgress, setRunProgress] = useState({})
+  const [recentOpen, setRecentOpen] = useState(false)
   const navigate = useNavigate()
   useEffect(() => setPageTitle('Dashboard'), [setPageTitle])
 
@@ -115,6 +117,7 @@ export default function Dashboard() {
           <div className="dash-header">
             <h2>Libraries</h2>
             <div className="dash-actions">
+              <button className="link-btn" onClick={() => setRecentOpen(true)}>Recently Added</button>
               <button className="link-btn" onClick={() => navigate('/new-library')}>+ New Library</button>
             </div>
           </div>
@@ -161,6 +164,12 @@ export default function Dashboard() {
           </tbody></table>
         </>
       )}
+
+      <RecentRunModal
+        open={recentOpen}
+        onClose={() => setRecentOpen(false)}
+        libraries={(libs || []).map(l => l.name).join(',')}
+      />
     </>
   )
 }

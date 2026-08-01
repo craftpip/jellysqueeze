@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useOutletContext } from 'react-router-dom'
 import { api } from '../api'
+import RecentRunModal from './RecentRunModal'
 
 const s = {
   section: { marginBottom: 28 },
@@ -15,6 +16,7 @@ export default function LibraryDetail() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [recentOpen, setRecentOpen] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -93,6 +95,7 @@ export default function LibraryDetail() {
           ) : (
             <button className="link-btn primary" onClick={runNow}>&#9654; Run Now</button>
           )}
+          <button className="link-btn" onClick={() => setRecentOpen(true)}>Recently Added</button>
           <button className="link-btn" onClick={() => navigate('/edit-library/' + encodeURIComponent(name))}>Edit</button>
           <button className="link-btn" style={{color:'#e05050'}} onClick={deleteLib}>Delete</button>
           </div>
@@ -194,6 +197,14 @@ export default function LibraryDetail() {
           </tbody></table>
         )}
       </div>
+
+      <RecentRunModal
+        open={recentOpen}
+        onClose={() => setRecentOpen(false)}
+        libraries={name}
+        fixedLibrary
+        title={'Recently Added - ' + name}
+      />
     </>
   )
 }

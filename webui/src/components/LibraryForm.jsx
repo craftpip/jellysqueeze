@@ -179,13 +179,6 @@ export default function LibraryForm() {
         <button className="link-btn" style={{ marginBottom: 20 }} onClick={() => navigate(isEdit ? '/library-detail/' + encodeURIComponent(name) : '/')}>&#8592; Back</button>
         {error && <div className="error-message">{error}</div>}
         {saved && <div className="error-message" style={{ borderColor: '#1a3a1a', background: '#1a3a1a', color: '#33ff33' }}>Saved! Redirecting...</div>}
-        {cacheInvalidated && (
-          <div className="info-message">
-            Changing conversion settings (target/max bitrate, encoder, audio/subtitle languages, or
-            min savings) invalidates the probe cache. The next scan of this library will re-probe
-            every file from scratch.
-          </div>
-        )}
 
         <div style={s.section}>
           <h3 style={s.h3}>General</h3>
@@ -340,6 +333,13 @@ export default function LibraryForm() {
             <span className="value" style={{ fontFamily: 'monospace', fontSize: 12 }}>{form.encoder !== 'cpu' ? 'Hardware' : 'Software'}</span>
           </div>
         </div>
+        {cacheInvalidated && (
+          <div className="info-message" style={{ marginTop: 12 }}>
+            Changing conversion settings (target/max bitrate, encoder, audio/subtitle languages, or
+            min savings) invalidates the probe cache. The next scan of this library will re-probe
+            every file from scratch.
+          </div>
+        )}
       </div>
     </form>
   )

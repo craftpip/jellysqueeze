@@ -2757,6 +2757,7 @@ def main_jellyfin_recent(
         return
 
     config = load_config()
+    emit_json("run_status", phase="jellyfin", message=f"Querying Jellyfin: {', '.join(library_names)}")
     all_recent_files: list[tuple[Path, str]] = []
     for lib_name in library_names:
         try:
@@ -2764,8 +2765,6 @@ def main_jellyfin_recent(
             log.info(f"Jellyfin library '{lib_name}': found {len(items)} recently added/updated item(s)")
             for item in items:
                 p = Path(item["path"])
-                if not p.exists():
-                    continue
                 if ignore_paths and any(seg in str(p) for seg in ignore_paths):
                     log.info(f"Ignoring (--ignore-path match): {p}")
                     continue
@@ -2777,6 +2776,8 @@ def main_jellyfin_recent(
 
     if not all_recent_files:
         log.info("No recent files found to check")
+        emit_json("run_status", phase="process", message="Found 0 recent file(s)", files_total=0)
+        emit_json("summary", library_count=len(library_names), files_total=0, ok=0, skip=0, fail=0, space_saved_mb=0.0, elapsed=0.0)
         return
 
     # Deduplicate by path
@@ -2790,6 +2791,7 @@ def main_jellyfin_recent(
 
     unique_files.sort(key=lambda x: x[0].resolve().as_posix())
     log.info(f"Total unique files to check: {len(unique_files)}")
+    emit_json("run_status", phase="process", message=f"Found {len(unique_files)} recent file(s)", files_total=len(unique_files))
 
     log.info(f"Loading progress and probe cache...")
     done = load_done()
@@ -2805,8 +2807,29 @@ def main_jellyfin_recent(
         set(ALLOWED_SUBTITLE_LANGS) if ALLOWED_SUBTITLE_LANGS is not None else None,
     )
 
+    def on_progress(
+        file: Path,
+        pct: float | None,
+        finalizing: bool = False,
+        position_seconds: float | None = None,
+        duration_seconds: float | None = None,
+        frame_count: int | None = None,
+        total_frames: int | None = None,
+    ):
+        emit_json(
+            "progress",
+            file=str(file),
+            percent=pct,
+            finalizing=finalizing,
+            position_seconds=position_seconds,
+            duration_seconds=duration_seconds,
+            frame_count=frame_count,
+            total_frames=total_frames,
+        )
+
     for i, (file_path, lib_name) in enumerate(unique_files, 1):
         path = file_path.resolve().as_posix()
+        emit_json("run_status", phase="checking", message=f"Checking: {file_path}", files_total=len(unique_files))
         profile = None
         (TARGET_BR, MAX_BR, BUFSIZE, TRANSCODER, TRANSCODER_PROFILE,
          ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS) = base_settings
@@ -2828,6 +2851,7 @@ def main_jellyfin_recent(
         if done.get(path) == current_opt:
             skip += 1
             log.info(f"[{i}/{len(unique_files)}] SKIP: {file_path} :: already_done")
+            emit_json("result", file=str(file_path), status="SKIP", msg="already_done")
             continue
 
         try:
@@ -2835,6 +2859,7 @@ def main_jellyfin_recent(
         except FileNotFoundError:
             skip += 1
             log.info(f"[{i}/{len(unique_files)}] SKIP: {file_path} :: missing")
+            emit_json("result", file=str(file_path), status="SKIP", msg="missing")
             continue
 
         size = int(st.st_size)
@@ -2851,6 +2876,7 @@ def main_jellyfin_recent(
             skip += 1
             cached_msg = cache_entry.get("msg", "cached_skip")
             log.info(f"[{i}/{len(unique_files)}] SKIP: {file_path} :: cache({cached_msg})")
+            emit_json("result", file=str(file_path), status="SKIP", msg=f"cache({cached_msg})")
             continue
 
         if dry_run:
@@ -2858,13 +2884,16 @@ def main_jellyfin_recent(
             if br is not None and br <= MAX_BR:
                 skip += 1
                 log.info(f"[{i}/{len(unique_files)}] WOULD_SKIP: {file_path} :: ok({br}kbps)")
+                emit_json("result", file=str(file_path), status="SKIP", msg=f"would_skip(ok({br}kbps))")
             else:
                 ok += 1
                 log.info(f"[{i}/{len(unique_files)}] WOULD_CONVERT: {file_path} :: {br or 'unknown'} kbps")
+                emit_json("result", file=str(file_path), status="OK", msg=f"would_convert({br or 'unknown'}kbps)")
             continue
 
         log.info(f"[{i}/{len(unique_files)}] Checking: {file_path}")
-        status, msg, size_row = convert_if_needed(file_path, crf, verbose, effective_min_savings)
+        status, msg, size_row = convert_if_needed(file_path, crf, verbose, effective_min_savings, show_progress=True, progress_callback=on_progress)
+        on_progress(file_path, None)
 
         if status == "OK":
             ok += 1
@@ -2909,6 +2938,7 @@ def main_jellyfin_recent(
 
     elapsed = time.perf_counter() - started
     print_summary(len(library_names), len(unique_files), ok, skip, fail, space_saved_mb, elapsed)
+    emit_json("run_status", phase="done", message=f"Done. OK={ok} SKIP={skip} FAIL={fail}", files_total=len(unique_files))
     emit_json("summary", library_count=len(library_names), files_total=len(unique_files),
               ok=ok, skip=skip, fail=fail, space_saved_mb=round(space_saved_mb, 2),
               elapsed=round(elapsed, 2))

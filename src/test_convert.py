@@ -1,4 +1,5 @@
 import asyncio
+import datetime as dt
 import io
 import json
 import shutil
@@ -14,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import convert
 import state_db
-from webui.runner import RunManager
+from webui.runner import RunManager, start_run, _managers
 
 
 @pytest.fixture(autouse=True)
@@ -97,6 +98,41 @@ def test_run_manager_drains_final_result_before_saving_history():
     saved = state_db.load_run(run_id)
     assert saved["results"][0]["file"] == "video.mkv"
     assert saved["summary"]["ok"] == 1
+
+
+def test_start_run_allows_exclusive_modes_when_idle():
+    async def run():
+        try:
+            await start_run([sys.executable, "-c", "import time; time.sleep(30)"])
+            mgrs = list(_managers.values())
+            assert len(mgrs) == 1
+            assert mgrs[0].library is None
+            assert mgrs[0].running
+        finally:
+            for mgr in list(_managers.values()):
+                await mgr.stop()
+            _managers.clear()
+
+    asyncio.run(run())
+
+
+def test_start_run_rejects_overlap_and_duplicates():
+    async def run():
+        try:
+            await start_run([sys.executable, "-c", "import time; time.sleep(30)", "--library", "Shows"])
+            with pytest.raises(RuntimeError):
+                await start_run([sys.executable, "-c", "import time; time.sleep(30)", "--library", "Shows"])
+            with pytest.raises(RuntimeError):
+                await start_run([sys.executable, "-c", "import time; time.sleep(30)", "--all"])
+            with pytest.raises(RuntimeError):
+                await start_run([sys.executable, "-c", "import time; time.sleep(30)", "--jellyfin-recent"])
+            await start_run([sys.executable, "-c", "import time; time.sleep(30)", "--library", "Movies"])
+        finally:
+            for mgr in list(_managers.values()):
+                await mgr.stop()
+            _managers.clear()
+
+    asyncio.run(run())
 
 
 FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
@@ -389,3 +425,332 @@ def test_runner_drops_ignorable_stderr_lines():
     assert _is_ignorable_stderr("\x1b[1A\x1b[J[██░░░░] 1/10  OK=1")
     assert not _is_ignorable_stderr("2026-07-31 10:00:00 | INFO | Checking: /media/a.mkv")
     assert not _is_ignorable_stderr("{not json but starts with brace}")
+
+
+def test_build_convert_cmd_jellyfin_recent_mapping():
+    from webui.main import build_convert_cmd
+
+    cmd = build_convert_cmd({
+        "mode": "jellyfin_recent",
+        "flags": {"libraries": "Shows,Movies", "since_hours": 24},
+    })
+    assert "--jellyfin-recent" in cmd
+    assert cmd[cmd.index("--libraries") + 1] == "Shows,Movies"
+    assert cmd[cmd.index("--since-hours") + 1] == "24"
+
+
+def test_build_convert_cmd_jellyfin_recent_default_since_hours():
+    from webui.main import build_convert_cmd
+
+    cmd = build_convert_cmd({"mode": "jellyfin_recent", "flags": {"libraries": "Shows"}})
+    assert cmd[cmd.index("--libraries") + 1] == "Shows"
+    assert cmd[cmd.index("--since-hours") + 1] == "72"
+
+
+def test_run_manager_retains_latest_run_status():
+    async def run():
+        manager = RunManager()
+        script = (
+            "import json; "
+            "print(json.dumps({'type':'run_status','phase':'process','message':'Found 2 recent file(s)','files_total':2}))"
+        )
+        run_id = await manager.start([sys.executable, "-c", script])
+        await manager.wait()
+        return manager, run_id
+
+    manager, run_id = asyncio.run(run())
+    assert manager.run_status["phase"] == "process"
+    assert manager.run_status["files_total"] == 2
+    saved = state_db.load_run(run_id)
+    assert saved["run_status"]["files_total"] == 2
+
+
+def test_run_manager_retains_files_total_across_run_status_events():
+    async def run():
+        manager = RunManager()
+        script = (
+            "import json; "
+            "print(json.dumps({'type':'run_status','phase':'process','message':'Found 2 recent file(s)','files_total':2})); "
+            "print(json.dumps({'type':'run_status','phase':'checking','message':'Checking: /x.mkv','files_total':2})); "
+            "print(json.dumps({'type':'run_status','phase':'encode','message':'Encoding: /x.mkv'}))"
+        )
+        run_id = await manager.start([sys.executable, "-c", script])
+        await manager.wait()
+        return manager
+
+    manager = asyncio.run(run())
+    assert manager.run_status["phase"] == "encode"
+    assert manager.run_status["files_total"] == 2
+
+
+def _run_recent(monkeypatch, tmp_path, items, dry_run=False, done=None):
+    d = tmp_path / "media"
+    d.mkdir(exist_ok=True)
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr(convert, "JSON_MODE", True)
+    monkeypatch.setattr(convert, "load_config", lambda: None)
+    monkeypatch.setattr(convert, "load_done", lambda: done or {})
+    monkeypatch.setattr(convert, "load_probe_cache", lambda: {})
+    monkeypatch.setattr(convert, "conversion_option", lambda *a, **k: "test-opt")
+
+    class FakeClient:
+        @classmethod
+        def from_env(cls):
+            return cls()
+
+        def __init__(self):
+            self._items = items
+
+        def get_recent_items(self, lib, hours):
+            return self._items
+
+        def close(self):
+            pass
+
+    mod = types.ModuleType("jellyfin_client")
+    mod.JellyfinClient = FakeClient
+    monkeypatch.setitem(sys.modules, "jellyfin_client", mod)
+
+    convert.main_jellyfin_recent(["Shows"], since_hours=72, dry_run=dry_run, min_savings_pct=0)
+    return [json.loads(ln) for ln in out.getvalue().splitlines() if ln.startswith("{")]
+
+
+def test_jellyfin_recent_emits_results_for_already_done_and_missing(monkeypatch, tmp_path):
+    existing = tmp_path / "media" / "a.mkv"
+    existing.parent.mkdir()
+    existing.write_bytes(b"x")
+    missing = tmp_path / "media" / "b.mkv"
+
+    lines = _run_recent(
+        monkeypatch, tmp_path,
+        [{"path": str(existing)}, {"path": str(missing)}],
+        done={str(existing.resolve().as_posix()): "test-opt"},
+    )
+    process = [ln for ln in lines if ln["type"] == "run_status" and ln["phase"] == "process"][0]
+    assert process["files_total"] == 2
+
+    results = [ln for ln in lines if ln["type"] == "result"]
+    assert len(results) == 2
+    assert {r["status"] for r in results} == {"SKIP"}
+    assert sorted(r["msg"] for r in results) == ["already_done", "missing"]
+
+    summary = [ln for ln in lines if ln["type"] == "summary"][0]
+    assert summary["files_total"] == 2
+    assert summary["skip"] == 2
+
+
+def test_jellyfin_recent_empty_query_emits_zero_summary(monkeypatch, tmp_path):
+    lines = _run_recent(monkeypatch, tmp_path, [])
+
+    process = [ln for ln in lines if ln["type"] == "run_status" and ln["phase"] == "process"][0]
+    assert process["files_total"] == 0
+
+    summary = [ln for ln in lines if ln["type"] == "summary"][0]
+    assert summary["files_total"] == 0
+    assert summary["ok"] == summary["skip"] == summary["fail"] == 0
+
+
+def test_jellyfin_recent_dry_run_emits_terminal_results(monkeypatch, tmp_path):
+    d = tmp_path / "media"
+    d.mkdir()
+    low = d / "a.mkv"
+    high = d / "b.mkv"
+    low.write_bytes(b"x")
+    high.write_bytes(b"x")
+    monkeypatch.setattr(
+        convert, "get_estimated_bitrate_kbps",
+        lambda f: 100 if str(f).endswith("a.mkv") else 10000,
+    )
+
+    lines = _run_recent(monkeypatch, tmp_path, [
+        {"path": str(low)},
+        {"path": str(high)},
+    ], dry_run=True)
+
+    results = [ln for ln in lines if ln["type"] == "result"]
+    assert len(results) == 2
+    assert sorted(r["status"] for r in results) == ["OK", "SKIP"]
+    assert {r["msg"] for r in results} == {"would_skip(ok(100kbps))", "would_convert(10000kbps)"}
+
+    checking = [ln for ln in lines if ln["type"] == "run_status" and ln["phase"] == "checking"]
+    assert len(checking) == 2
+    assert all(c["files_total"] == 2 for c in checking)
+
+
+def test_jellyfin_recent_passes_progress_callback(monkeypatch, tmp_path):
+    d = tmp_path / "media"
+    d.mkdir()
+    f = d / "a.mkv"
+    f.write_bytes(b"x")
+
+    captured = {}
+
+    def fake_convert(file_path, crf=None, verbose=False, min_savings_pct=0, show_progress=False, progress_callback=None):
+        captured["show_progress"] = show_progress
+        captured["has_callback"] = progress_callback is not None
+        if progress_callback:
+            progress_callback(file_path, 42.5, position_seconds=1, duration_seconds=2, frame_count=3, total_frames=4)
+        return "SKIP", "skipped_test", None
+
+    monkeypatch.setattr(convert, "convert_if_needed", fake_convert)
+
+    lines = _run_recent(monkeypatch, tmp_path, [{"path": str(f)}])
+
+    assert captured["has_callback"] is True
+    assert captured["show_progress"] is True
+
+    progress = [ln for ln in lines if ln["type"] == "progress"]
+    assert progress
+    assert progress[0]["file"].endswith("a.mkv")
+    assert progress[0]["percent"] == 42.5
+    assert progress[0]["position_seconds"] == 1
+    assert progress[0]["duration_seconds"] == 2
+    assert progress[0]["frame_count"] == 3
+    assert progress[0]["total_frames"] == 4
+
+
+# ── Scheduler ───────────────────────────────────────────────────────────────
+
+def test_next_run_daily():
+    from webui.scheduler import next_run
+    now = dt.datetime(2026, 8, 1, 20, 0, 0)
+    assert next_run({"enabled": True, "repeat": "daily", "time": "21:00"}, now) == dt.datetime(2026, 8, 1, 21, 0, 0)
+    assert next_run({"enabled": True, "repeat": "daily", "time": "19:00"}, now) == dt.datetime(2026, 8, 2, 19, 0, 0)
+    assert next_run({"enabled": True, "repeat": "daily", "time": "20:00"}, now) == dt.datetime(2026, 8, 1, 20, 0, 0)
+
+
+def test_next_run_daily_due_within_minute():
+    from webui.scheduler import next_run
+    now = dt.datetime(2026, 8, 1, 20, 0, 30)
+    assert next_run({"enabled": True, "repeat": "daily", "time": "20:00"}, now) == dt.datetime(2026, 8, 1, 20, 0, 0)
+
+
+def test_next_run_weekly():
+    from webui.scheduler import next_run
+    now = dt.datetime(2026, 8, 1, 10, 0, 0)  # Saturday
+    assert next_run({"enabled": True, "repeat": "weekly", "day": 0, "time": "09:00"}, now) == dt.datetime(2026, 8, 3, 9, 0, 0)
+    assert next_run({"enabled": True, "repeat": "weekly", "day": 5, "time": "09:00"}, now) == dt.datetime(2026, 8, 8, 9, 0, 0)
+    assert next_run({"enabled": True, "repeat": "weekly", "day": 5, "time": "12:00"}, now) == dt.datetime(2026, 8, 1, 12, 0, 0)
+
+
+def test_next_run_monthly():
+    from webui.scheduler import next_run
+    now = dt.datetime(2026, 8, 10, 10, 0, 0)
+    assert next_run({"enabled": True, "repeat": "monthly", "day": 15, "time": "09:00"}, now) == dt.datetime(2026, 8, 15, 9, 0, 0)
+    assert next_run({"enabled": True, "repeat": "monthly", "day": 15, "time": "12:00"}, now) == dt.datetime(2026, 8, 15, 12, 0, 0)
+    now_sept = dt.datetime(2026, 9, 1, 10, 0, 0)
+    assert next_run({"enabled": True, "repeat": "monthly", "day": 31, "time": "03:00"}, now_sept) == dt.datetime(2026, 10, 31, 3, 0, 0)
+
+
+def test_next_run_disabled():
+    from webui.scheduler import next_run
+    now = dt.datetime(2026, 8, 1, 10, 0, 0)
+    assert next_run({"enabled": False, "repeat": "daily", "time": "12:00"}, now) is None
+
+
+def test_validate_schedule_rejects_bad_fields():
+    from webui.scheduler import validate_schedule
+    assert validate_schedule({"name": "x", "repeat": "daily", "time": "25:00", "mode": "library", "library": "S"})
+    assert validate_schedule({"name": "x", "repeat": "weekly", "day": 9, "time": "03:00", "mode": "library", "library": "S"})
+    assert validate_schedule({"name": "x", "repeat": "monthly", "day": 0, "time": "03:00", "mode": "library", "library": "S"})
+    assert validate_schedule({"name": "x", "repeat": "daily", "time": "03:00", "mode": "library"})
+    assert validate_schedule({"name": "x", "repeat": "daily", "time": "03:00", "mode": "jellyfin_recent"})
+    assert validate_schedule({"name": "", "repeat": "daily", "time": "03:00", "mode": "library", "library": "S"})
+    assert validate_schedule({"name": "x", "repeat": "daily", "time": "03:00", "mode": "library", "library": "S"}) is None
+    assert validate_schedule({"name": "x", "repeat": "monthly", "day": 31, "time": "03:00", "mode": "library", "library": "S"}) is None
+
+
+def test_schedule_to_req_maps_modes():
+    from webui.scheduler import schedule_to_req
+    assert schedule_to_req({"mode": "library", "library": "Shows", "flags": {}}) == \
+        {"mode": "library", "library": "Shows", "flags": {}}
+    assert schedule_to_req({"mode": "jellyfin_recent", "flags": {"libraries": "Shows", "since_hours": 24}}) == \
+        {"mode": "jellyfin_recent", "flags": {"libraries": "Shows", "since_hours": 24}}
+
+
+def test_scheduler_tick_fires_once(monkeypatch):
+    import webui.main
+    import webui.runner
+    import webui.scheduler as sched_mod
+    from webui.scheduler import Scheduler
+
+    due_time = dt.datetime.now().strftime("%H:%M")
+    sched = {"name": "test", "enabled": True, "repeat": "daily", "time": due_time,
+             "mode": "library", "library": "Shows"}
+    monkeypatch.setattr(sched_mod.conv, "load_config", lambda: {"schedules": [sched]})
+    calls = []
+
+    async def fake_start(cmd):
+        calls.append(cmd)
+        return "run123"
+
+    monkeypatch.setattr(webui.main, "build_convert_cmd", lambda req: ["convert.py", "--library", req["library"]])
+    monkeypatch.setattr(webui.runner, "start_run", fake_start)
+
+    async def run():
+        sc = Scheduler()
+        await sc._tick()
+        await sc._tick()
+        return sc
+
+    sc = asyncio.run(run())
+    assert len(calls) == 1
+    assert sc._last["test"]["run_id"] == "run123"
+
+
+def test_scheduler_tick_skips_due_run_on_overlap(monkeypatch):
+    import webui.main
+    import webui.runner
+    import webui.scheduler as sched_mod
+    from webui.scheduler import Scheduler
+
+    due_time = dt.datetime.now().strftime("%H:%M")
+    sched = {"name": "test", "enabled": True, "repeat": "daily", "time": due_time,
+             "mode": "library", "library": "Shows"}
+    monkeypatch.setattr(sched_mod.conv, "load_config", lambda: {"schedules": [sched]})
+    calls = []
+
+    async def fake_start(cmd):
+        calls.append(cmd)
+        raise RuntimeError("already active for this library")
+
+    monkeypatch.setattr(webui.main, "build_convert_cmd", lambda req: ["convert.py", "--library", req["library"]])
+    monkeypatch.setattr(webui.runner, "start_run", fake_start)
+
+    async def run():
+        sc = Scheduler()
+        await sc._tick()
+        await sc._tick()
+        return sc
+
+    sc = asyncio.run(run())
+    assert len(calls) == 1
+    assert "skipped_reason" in sc._last["test"]
+
+
+def test_scheduler_status_keeps_next_run_after_run_now(monkeypatch):
+    import webui.main
+    import webui.runner
+    import webui.scheduler as sched_mod
+    from webui.scheduler import Scheduler
+
+    sched = {"name": "test", "enabled": True, "repeat": "daily", "time": "03:00",
+             "mode": "library", "library": "Shows"}
+    monkeypatch.setattr(sched_mod.conv, "load_config", lambda: {"schedules": [sched]})
+
+    async def fake_start(cmd):
+        return "run123"
+
+    monkeypatch.setattr(webui.main, "build_convert_cmd", lambda req: ["convert.py", "--library", req["library"]])
+    monkeypatch.setattr(webui.runner, "start_run", fake_start)
+
+    async def run():
+        sc = Scheduler()
+        await sc.run_now("test")
+        return sc
+
+    sc = asyncio.run(run())
+    assert sc._last["test"]["run_id"] == "run123"
+    status = sc.get_status()
+    assert status[0]["next_run"] is not None

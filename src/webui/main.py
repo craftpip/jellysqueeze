@@ -20,13 +20,22 @@ sys.path.insert(0, str(BASE_DIR / "src"))
 
 import convert as conv
 from webui.runner import start_run, get_run, get_active_runs, cleanup_run, stop_all_runs, _load_runs, RUNS_DIR
+from webui.scheduler import Scheduler, validate_schedule, schedule_to_req
 
 app = FastAPI(title="Media Convert for Jellyfin — Web UI")
+
+scheduler = Scheduler()
+
+
+@app.on_event("startup")
+async def start_scheduler_on_startup():
+    scheduler.start()
 
 
 @app.on_event("shutdown")
 async def stop_runs_on_shutdown():
     await stop_all_runs()
+    await scheduler.stop()
 
 
 def _run_list_entry(run: dict) -> dict:
@@ -135,6 +144,7 @@ def api_env():
         "BUFSIZE": int(os.getenv("BUFSIZE", 6000)),
         "DEFAULT_CRF": int(os.getenv("DEFAULT_CRF", 23)),
         "JELLYFIN_BASE_URL": os.getenv("JELLYFIN_BASE_URL", ""),
+        "jellyfin_configured": bool(os.getenv("JELLYFIN_BASE_URL")) and bool(os.getenv("JELLYFIN_API_KEY")),
         "DEFAULT_WORKERS": int(os.getenv("DEFAULT_WORKERS", "1")),
         "DEFAULT_EXCLUDE": os.getenv("DEFAULT_EXCLUDE", ""),
         "DEFAULT_IGNORE_PATH": os.getenv("DEFAULT_IGNORE_PATH", ""),
@@ -377,6 +387,96 @@ async def api_delete_library(name: str):
     return {"deleted": True}
 
 
+# ── Schedules ────────────────────────────────────────────────────────────────
+
+_SCHEDULE_KEYS = ("name", "enabled", "repeat", "day", "time", "mode", "library", "flags")
+
+
+def _schedule_entry(body: dict) -> dict:
+    entry = {}
+    for key in _SCHEDULE_KEYS:
+        if key in body:
+            entry[key] = body[key]
+    return entry
+
+
+@app.get("/api/schedules")
+def api_list_schedules():
+    return {"schedules": scheduler.get_status()}
+
+
+@app.post("/api/schedules")
+async def api_create_schedule(body: dict):
+    config = conv.load_config()
+    if config is None:
+        config = {}
+    schedules = config.setdefault("schedules", [])
+    entry = _schedule_entry(body)
+    err = validate_schedule(entry)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    name = entry.get("name", "").strip()
+    if any(s.get("name", "").strip().lower() == name.lower() for s in schedules):
+        raise HTTPException(status_code=409, detail=f"schedule '{name}' already exists")
+    schedules.append(entry)
+    if not conv.save_config(config):
+        raise HTTPException(status_code=500, detail="Failed to write config.yml, check file permissions")
+    return {"saved": True, "schedule": entry}
+
+
+@app.put("/api/schedules/{name}")
+async def api_update_schedule(name: str, body: dict):
+    config = conv.load_config()
+    if not config:
+        raise HTTPException(status_code=404, detail="config not found")
+    schedules = config.get("schedules", [])
+    for i, s in enumerate(schedules):
+        if s.get("name", "").strip().lower() == name.strip().lower():
+            entry = _schedule_entry(body)
+            if "name" not in entry or not entry.get("name", "").strip():
+                entry["name"] = s.get("name", "")
+            err = validate_schedule(entry)
+            if err:
+                raise HTTPException(status_code=400, detail=err)
+            dup = any(
+                j != i and s2.get("name", "").strip().lower() == entry["name"].strip().lower()
+                for j, s2 in enumerate(schedules)
+            )
+            if dup:
+                raise HTTPException(status_code=409, detail=f"schedule '{entry['name']}' already exists")
+            schedules[i] = entry
+            if not conv.save_config(config):
+                raise HTTPException(status_code=500, detail="Failed to write config.yml, check file permissions")
+            return {"saved": True, "schedule": entry}
+    raise HTTPException(status_code=404, detail=f"schedule '{name}' not found")
+
+
+@app.delete("/api/schedules/{name}")
+async def api_delete_schedule(name: str):
+    config = conv.load_config()
+    if not config:
+        raise HTTPException(status_code=404, detail="config not found")
+    schedules = config.get("schedules", [])
+    new_schedules = [s for s in schedules if s.get("name", "").strip().lower() != name.strip().lower()]
+    if len(new_schedules) == len(schedules):
+        raise HTTPException(status_code=404, detail=f"schedule '{name}' not found")
+    config["schedules"] = new_schedules
+    if not conv.save_config(config):
+        raise HTTPException(status_code=500, detail="Failed to write config.yml, check file permissions")
+    return {"deleted": True}
+
+
+@app.post("/api/schedules/{name}/run")
+async def api_run_schedule(name: str):
+    try:
+        run_id = await scheduler.run_now(name)
+        return {"run_id": run_id}
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"schedule '{name}' not found")
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
 # ── Path Validation ─────────────────────────────────────────────────────────
 
 @app.get("/api/validate-path")
@@ -517,6 +617,7 @@ def api_status(run_id: str):
             "terminal_output": mgr.get_terminal_buffer(),
             "results": results,
             "folder_totals": mgr.folder_totals,
+            "run_status": mgr.run_status,
             "library": mgr.library,
             "started_at": mgr.start_time,
             "summary": {
@@ -536,6 +637,7 @@ def api_status(run_id: str):
             "terminal_output": data.get("terminal_output", []),
             "results": data.get("results", []),
             "folder_totals": data.get("folder_totals", {}),
+            "run_status": data.get("run_status"),
             "library": data.get("library"),
             "started_at": data.get("started_at"),
             "ended_at": data.get("ended_at"),
@@ -659,6 +761,9 @@ def _spa_index():
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+from webui.mcp import mcp_app
+app.include_router(mcp_app)
+
 
 @app.get("/")
 def index():
@@ -670,7 +775,3 @@ def spa_fallback(path: str):
     if path.startswith("api/"):
         return JSONResponse({"error": "not found"}, status_code=404)
     return _spa_index()
-
-
-from webui.mcp import mcp_app
-app.include_router(mcp_app)

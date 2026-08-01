@@ -34,6 +34,13 @@ tr:hover td{background:#252525}
 .filter-input{font-size:12px;padding:4px 10px;border:1px solid #444;border-radius:4px;background:#2a2a2a;color:#e0e0e0;outline:none;width:200px}
 .filter-input:focus{border-color:#4c9aff}
 .filter-input::placeholder{color:#888}
+.run-filter{font-size:12px;padding:4px 10px;border:1px solid #444;border-radius:4px;background:#2a2a2a;color:#e0e0e0;outline:none;margin-left:8px}
+.run-filter:focus{border-color:#4c9aff}
+.lib-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.lib-chip{font-size:12px;padding:5px 12px;border:1px solid #444;border-radius:14px;background:#2a2a2a;color:#b0b0b0;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+.lib-chip:hover{border-color:#4c9aff}
+.lib-chip.active{background:#1a3a5c;border-color:#4c9aff;color:#e0e0e0}
+.lib-chip:disabled{cursor:default;opacity:.9}
 .btn .badge{background:#444;color:#ccc;font-size:10px;padding:1px 6px;border-radius:8px;margin-left:3px;vertical-align:middle}
 .btn:disabled{opacity:.5;cursor:default}
 .btn.loading{opacity:.7;pointer-events:none;position:relative}
@@ -47,6 +54,7 @@ tr:hover td{background:#252525}
 .form-row .field textarea{font-family:monospace;resize:vertical}
 .form-row .field.checkbox{flex-direction:row;align-items:center;gap:6px;padding-top:16px}
 .form-row .field.checkbox label{margin-bottom:0}
+.form-row .field.checkbox.checkbox-input{padding-top:28px}
 input[type="checkbox"]{width:16px;height:16px;accent-color:#4c9aff}
 .path-list{display:flex;flex-direction:column;gap:4px}
 .path-item{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#2a2a2a;border:1px solid #444;border-radius:4px;font-size:12px;font-family:monospace}
@@ -113,6 +121,7 @@ input[type="checkbox"]{width:16px;height:16px;accent-color:#4c9aff}
 
 .cell-actions{text-align:right;white-space:nowrap}
 .cell-actions .link-btn{margin-left:14px}
+.cell-actions .btn + .btn{margin-left:8px}
 .hidden{display:none!important}
 .loading-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(18,18,18,.7);display:flex;align-items:center;justify-content:center;z-index:200;transition:opacity .2s}
 .loading-overlay.hidden{opacity:0;pointer-events:none}
@@ -132,3 +141,7 @@ tr.row-running:hover td{background:#1e3044!important}
 .stat-num{display:block;font-size:22px;font-weight:700;color:#fff;margin-top:2px}
 td.file,.file-ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .file-ellipsis{flex:1;font-size:12px;color:#ccc}
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(18,18,18,.75);display:flex;align-items:flex-start;justify-content:center;padding:80px 20px;z-index:300;overflow-y:auto}
+.modal-panel{background:#1e1e1e;border:1px solid #333;border-radius:8px;padding:20px;width:100%;max-width:460px}
+.modal-panel h3{font-size:14px;font-weight:600;color:#ccc;margin-bottom:14px}
+.modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:4px}

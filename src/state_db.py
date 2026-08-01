@@ -60,7 +60,8 @@ def initialize() -> None:
                 ended_at REAL,
                 exit_code INTEGER,
                 summary_json TEXT NOT NULL DEFAULT '{}',
-                folder_totals_json TEXT NOT NULL DEFAULT '{}'
+                folder_totals_json TEXT NOT NULL DEFAULT '{}',
+                run_status_json TEXT NOT NULL DEFAULT '{}'
             );
             CREATE INDEX IF NOT EXISTS runs_library_started
                 ON runs(library, started_at DESC);
@@ -83,7 +84,19 @@ def initialize() -> None:
                 PRIMARY KEY (run_id, sequence)
             );
         """)
+        _migrate_runs_columns(conn)
     _import_legacy_once()
+
+
+def _migrate_runs_columns(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(runs)")}
+    if "run_status_json" not in columns:
+        try:
+            conn.execute("ALTER TABLE runs ADD COLUMN run_status_json TEXT NOT NULL DEFAULT '{}'")
+        except sqlite3.OperationalError:
+            current = {row["name"] for row in conn.execute("PRAGMA table_info(runs)")}
+            if "run_status_json" not in current:
+                raise
 
 
 def _import_legacy_once() -> None:
@@ -244,15 +257,18 @@ def save_run(run: dict, conn: sqlite3.Connection | None = None) -> None:
     assert conn is not None
     summary = run.get("summary") or {}
     folders = run.get("folder_totals") or {}
+    run_status = run.get("run_status") or {}
     conn.execute(
-        """INSERT INTO runs(run_id, library, status, started_at, ended_at, exit_code, summary_json, folder_totals_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """INSERT INTO runs(run_id, library, status, started_at, ended_at, exit_code, summary_json, folder_totals_json, run_status_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(run_id) DO UPDATE SET library=excluded.library, status=excluded.status,
         started_at=excluded.started_at, ended_at=excluded.ended_at, exit_code=excluded.exit_code,
-        summary_json=excluded.summary_json, folder_totals_json=excluded.folder_totals_json""",
+        summary_json=excluded.summary_json, folder_totals_json=excluded.folder_totals_json,
+        run_status_json=excluded.run_status_json""",
         (
             run["run_id"], run.get("library"), summary.get("status"), run.get("started_at"),
             run.get("ended_at"), run.get("exit_code"), json.dumps(summary), json.dumps(folders),
+            json.dumps(run_status),
         ),
     )
     conn.execute("DELETE FROM run_results WHERE run_id = ?", (run["run_id"],))
@@ -314,6 +330,7 @@ def _run_from_row(row: sqlite3.Row) -> dict:
         "exit_code": row["exit_code"],
         "summary": json.loads(row["summary_json"]),
         "folder_totals": json.loads(row["folder_totals_json"]),
+        "run_status": json.loads(row["run_status_json"]) if row["run_status_json"] else None,
     }
 
 

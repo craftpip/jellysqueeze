@@ -33,6 +33,7 @@ export default function Layout() {
             <li><NavLink to="/" end>Dashboard</NavLink></li>
             <li><NavLink to="/new-library">New Library</NavLink></li>
             <li><NavLink to="/runs">Run History</NavLink></li>
+            <li><NavLink to="/schedules">Schedules</NavLink></li>
             <li><NavLink to="/errors">Errors</NavLink></li>
             <li><NavLink to="/settings">Settings</NavLink></li>
           </ul>
