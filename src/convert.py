@@ -2768,6 +2768,9 @@ def main_jellyfin_recent(
                 if ignore_paths and any(seg in str(p) for seg in ignore_paths):
                     log.info(f"Ignoring (--ignore-path match): {p}")
                     continue
+                if TMP_TAG in p.name or ORIGINAL_TAG in p.name:
+                    log.info(f"Ignoring temp/backup file: {p}")
+                    continue
                 all_recent_files.append((p, lib_name.strip()))
         except Exception as e:
             log.warning(f"Failed to query Jellyfin library '{lib_name}': {e}")
