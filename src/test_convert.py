@@ -551,6 +551,46 @@ def test_jellyfin_recent_empty_query_emits_zero_summary(monkeypatch, tmp_path):
     assert summary["ok"] == summary["skip"] == summary["fail"] == 0
 
 
+def test_jellyfin_recent_query_failure_emits_fail_result(monkeypatch, tmp_path):
+    d = tmp_path / "media"
+    d.mkdir(exist_ok=True)
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    monkeypatch.setattr(convert, "JSON_MODE", True)
+    monkeypatch.setattr(convert, "load_config", lambda: None)
+    monkeypatch.setattr(convert, "load_done", lambda: {})
+    monkeypatch.setattr(convert, "load_probe_cache", lambda: {})
+    monkeypatch.setattr(convert, "conversion_option", lambda *a, **k: "test-opt")
+
+    class FakeClient:
+        @classmethod
+        def from_env(cls):
+            return cls()
+
+        def get_recent_items(self, lib, hours):
+            raise OSError(5, "Input/output error", f"/mnt/{lib}/bad.mkv")
+
+        def close(self):
+            pass
+
+    mod = types.ModuleType("jellyfin_client")
+    mod.JellyfinClient = FakeClient
+    monkeypatch.setitem(sys.modules, "jellyfin_client", mod)
+
+    convert.main_jellyfin_recent(["Shows"], since_hours=72, min_savings_pct=0)
+    lines = [json.loads(ln) for ln in out.getvalue().splitlines() if ln.startswith("{")]
+
+    results = [ln for ln in lines if ln["type"] == "result"]
+    assert len(results) == 1
+    assert results[0]["status"] == "FAIL"
+    assert "Shows" in results[0]["file"]
+    assert "Input/output error" in results[0]["msg"]
+
+    summary = [ln for ln in lines if ln["type"] == "summary"][0]
+    assert summary["fail"] == 1
+    assert summary["ok"] == summary["skip"] == 0
+
+
 def test_jellyfin_recent_dry_run_emits_terminal_results(monkeypatch, tmp_path):
     d = tmp_path / "media"
     d.mkdir()

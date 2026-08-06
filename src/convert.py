@@ -2759,6 +2759,8 @@ def main_jellyfin_recent(
     config = load_config()
     emit_json("run_status", phase="jellyfin", message=f"Querying Jellyfin: {', '.join(library_names)}")
     all_recent_files: list[tuple[Path, str]] = []
+    ok = skip = fail = 0
+    space_saved_mb = 0.0
     for lib_name in library_names:
         try:
             items = client.get_recent_items(lib_name.strip(), since_hours)
@@ -2773,14 +2775,16 @@ def main_jellyfin_recent(
                     continue
                 all_recent_files.append((p, lib_name.strip()))
         except Exception as e:
+            fail += 1
             log.warning(f"Failed to query Jellyfin library '{lib_name}': {e}")
+            emit_json("result", file=f"Jellyfin library '{lib_name.strip()}'", status="FAIL", msg=f"query_failed: {e}")
 
     client.close()
 
     if not all_recent_files:
         log.info("No recent files found to check")
         emit_json("run_status", phase="process", message="Found 0 recent file(s)", files_total=0)
-        emit_json("summary", library_count=len(library_names), files_total=0, ok=0, skip=0, fail=0, space_saved_mb=0.0, elapsed=0.0)
+        emit_json("summary", library_count=len(library_names), files_total=0, ok=ok, skip=skip, fail=fail, space_saved_mb=0.0, elapsed=0.0)
         return
 
     # Deduplicate by path
