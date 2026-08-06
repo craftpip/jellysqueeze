@@ -94,7 +94,7 @@ export default function LibraryDetail() {
           ) : (
             <button className="link-btn primary" onClick={runNow}>&#9654; Run Now</button>
           )}
-          <button className="link-btn" onClick={() => setRecentOpen(true)}>Recently Added</button>
+          <button className="link-btn primary" onClick={() => setRecentOpen(true)}>&#9654; Run Recently Added</button>
           <button className="link-btn" onClick={() => navigate('/edit-library/' + encodeURIComponent(name))}>Edit</button>
           <button className="link-btn" style={{color:'#e05050'}} onClick={deleteLib}>Delete</button>
         </div>

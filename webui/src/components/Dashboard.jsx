@@ -117,7 +117,7 @@ export default function Dashboard() {
           <div className="dash-header">
             <h2>Libraries</h2>
             <div className="dash-actions">
-              <button className="link-btn" onClick={() => setRecentOpen(true)}>Recently Added</button>
+              <button className="link-btn primary" onClick={() => setRecentOpen(true)}>&#9654; Run Recently Added</button>
               <button className="link-btn" onClick={() => navigate('/new-library')}>+ New Library</button>
             </div>
           </div>
