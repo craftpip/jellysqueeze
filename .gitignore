@@ -2,6 +2,8 @@
 # placed at repository root
 **/test_files/*
 !**/test_files/.gitkeep
+tests/media/generated/
+tests/media/downloads/*.mp4
 __pycache__/
 .pytest_cache/
 venv/
