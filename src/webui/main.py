@@ -62,6 +62,23 @@ def _run_stats(run: dict) -> dict:
     }
 
 
+def _library_scoped_summary(run: dict, name: str) -> dict | None:
+    """A run's summary limited to one library.
+
+    Direct runs (run.library == name) use the whole summary; multi-library
+    jellyfin-recent runs carry a per-library breakdown in summary.libraries.
+    Returns None when the run did not touch this library.
+    """
+    if run.get("library") == name:
+        return run.get("summary") or {}
+    libs = (run.get("summary") or {}).get("libraries")
+    if isinstance(libs, dict):
+        entry = libs.get(name)
+        if isinstance(entry, dict):
+            return entry
+    return None
+
+
 def _load_config_safe():
     config = conv.load_config()
     if config is None:
@@ -232,11 +249,12 @@ def api_list_libraries():
     result = []
     for lib in libraries:
         name = lib.get("name", "")
-        lib_runs = [r for r in runs if r.get("library") == name]
-        last_run = lib_runs[0] if lib_runs else None
+        impacting = [r for r in runs if _library_scoped_summary(r, name) is not None]
+        last_run = impacting[0] if impacting else None
+        last_run_summary = _library_scoped_summary(last_run, name) if last_run else None
         total_saved = sum(
-            _run_stats(r)["space_saved_mb"]
-            for r in lib_runs
+            (_library_scoped_summary(r, name) or {}).get("space_saved_mb", 0) or 0
+            for r in impacting
         )
         result.append({
             "name": name,
@@ -244,9 +262,9 @@ def api_list_libraries():
             "profile": lib,
             "last_run": last_run["ended_at"] if last_run else None,
             "last_run_id": last_run["run_id"] if last_run else None,
-            "last_run_summary": last_run.get("summary") if last_run else None,
+            "last_run_summary": last_run_summary,
             "total_saved_mb": round(total_saved, 2),
-            "run_count": len(lib_runs),
+            "run_count": len(impacting),
             "running": name in active,
             "active_run_id": active.get(name),
         })
@@ -264,42 +282,51 @@ def api_get_library(name: str):
         raise HTTPException(status_code=404, detail=f"library '{name}' not found")
 
     paths, profile, lib = lib_info
-    runs = [_run_list_entry(r) for r in _load_runs() if r.get("library") == name]
+    runs = []
+    for r in _load_runs():
+        scoped = _library_scoped_summary(r, name)
+        if scoped is not None:
+            entry = _run_list_entry(r)
+            entry["summary"] = scoped
+            runs.append(entry)
 
     seen = set()
     for ar in get_active_runs():
-        if ar.get("library") == name:
-            mgr = get_run(ar["run_id"])
-            if mgr:
-                results = mgr.results
-                ok_count = sum(1 for r in results if r.get("status") == "OK")
-                skip_count = sum(1 for r in results if r.get("status") == "SKIP")
-                fail_count = sum(1 for r in results if r.get("status") == "FAIL")
-                saved_mb = sum(
-                    (r.get("before", 0) - r.get("after", 0)) / (1024 * 1024)
-                    for r in results if r.get("before") and r.get("after")
-                )
-                entry = {
-                    "run_id": ar["run_id"],
-                    "library": name,
-                    "started_at": mgr.start_time,
-                    "running": True,
-                    "exit_code": None,
-                    "summary": {
-                        "ok": ok_count,
-                        "skip": skip_count,
-                        "fail": fail_count,
-                        "space_saved_mb": round(saved_mb, 2),
-                        "files_total": len(results),
-                    },
-                }
-                existing = next((i for i, r in enumerate(runs) if r.get("run_id") == ar["run_id"]), None)
-                if existing is not None:
-                    runs[existing] = entry
-                else:
-                    runs.insert(0, entry)
-                seen.add(ar["run_id"])
-                break
+        mgr = get_run(ar["run_id"])
+        if not mgr:
+            continue
+        results = mgr.results
+        if ar.get("library") != name:
+            results = [r for r in results if r.get("library") == name]
+            if not results:
+                continue
+        ok_count = sum(1 for r in results if r.get("status") == "OK")
+        skip_count = sum(1 for r in results if r.get("status") == "SKIP")
+        fail_count = sum(1 for r in results if r.get("status") == "FAIL")
+        saved_mb = sum(
+            (r.get("before", 0) - r.get("after", 0)) / (1024 * 1024)
+            for r in results if r.get("before") and r.get("after")
+        )
+        entry = {
+            "run_id": ar["run_id"],
+            "library": name,
+            "started_at": mgr.start_time,
+            "running": True,
+            "exit_code": None,
+            "summary": {
+                "ok": ok_count,
+                "skip": skip_count,
+                "fail": fail_count,
+                "space_saved_mb": round(saved_mb, 2),
+                "files_total": len(results),
+            },
+        }
+        existing = next((i for i, r in enumerate(runs) if r.get("run_id") == ar["run_id"]), None)
+        if existing is not None:
+            runs[existing] = entry
+        else:
+            runs.insert(0, entry)
+        seen.add(ar["run_id"])
 
     profile = dict(profile or {})
     for key in ("workers", "ignore_paths", "ignore_dirs"):

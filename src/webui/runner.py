@@ -224,6 +224,22 @@ class RunManager:
         _save_run(run_data)
 
     def _partial_summary(self, status: str) -> dict:
+        libs: dict[str, dict] = {}
+        for result in self._results:
+            lib = result.get("library")
+            if not lib:
+                continue
+            acc = libs.setdefault(lib, {"ok": 0, "skip": 0, "fail": 0, "space_saved_mb": 0.0})
+            result_status = result.get("status")
+            if result_status == "OK":
+                acc["ok"] += 1
+            elif result_status == "SKIP":
+                acc["skip"] += 1
+            else:
+                acc["fail"] += 1
+            before, after = result.get("before"), result.get("after")
+            if before and after:
+                acc["space_saved_mb"] += (before - after) / (1024 * 1024)
         return {
             "type": "summary",
             "status": status,
@@ -237,6 +253,7 @@ class RunManager:
                 for result in self._results
                 if result.get("before") and result.get("after")
             ), 2),
+            "libraries": libs,
         }
 
     async def wait(self):

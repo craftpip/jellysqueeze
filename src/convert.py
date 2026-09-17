@@ -2761,6 +2761,7 @@ def main_jellyfin_recent(
     all_recent_files: list[tuple[Path, str]] = []
     ok = skip = fail = 0
     space_saved_mb = 0.0
+    lib_stats = {name.strip(): {"ok": 0, "skip": 0, "fail": 0, "space_saved_mb": 0.0} for name in library_names}
     for lib_name in library_names:
         try:
             items = client.get_recent_items(lib_name.strip(), since_hours)
@@ -2776,15 +2777,16 @@ def main_jellyfin_recent(
                 all_recent_files.append((p, lib_name.strip()))
         except Exception as e:
             fail += 1
+            lib_stats[lib_name.strip()]["fail"] += 1
             log.warning(f"Failed to query Jellyfin library '{lib_name}': {e}")
-            emit_json("result", file=f"Jellyfin library '{lib_name.strip()}'", status="FAIL", msg=f"query_failed: {e}")
+            emit_json("result", file=f"Jellyfin library '{lib_name.strip()}'", library=lib_name.strip(), status="FAIL", msg=f"query_failed: {e}")
 
     client.close()
 
     if not all_recent_files:
         log.info("No recent files found to check")
         emit_json("run_status", phase="process", message="Found 0 recent file(s)", files_total=0)
-        emit_json("summary", library_count=len(library_names), files_total=0, ok=ok, skip=skip, fail=fail, space_saved_mb=0.0, elapsed=0.0)
+        emit_json("summary", library_count=len(library_names), files_total=0, ok=ok, skip=skip, fail=fail, space_saved_mb=0.0, libraries=lib_stats, elapsed=0.0)
         return
 
     # Deduplicate by path
@@ -2857,16 +2859,18 @@ def main_jellyfin_recent(
 
         if done.get(path) == current_opt:
             skip += 1
+            lib_stats[lib_name]["skip"] += 1
             log.info(f"[{i}/{len(unique_files)}] SKIP: {file_path} :: already_done")
-            emit_json("result", file=str(file_path), status="SKIP", msg="already_done")
+            emit_json("result", file=str(file_path), library=lib_name, status="SKIP", msg="already_done")
             continue
 
         try:
             st = file_path.stat()
         except FileNotFoundError:
             skip += 1
+            lib_stats[lib_name]["skip"] += 1
             log.info(f"[{i}/{len(unique_files)}] SKIP: {file_path} :: missing")
-            emit_json("result", file=str(file_path), status="SKIP", msg="missing")
+            emit_json("result", file=str(file_path), library=lib_name, status="SKIP", msg="missing")
             continue
 
         size = int(st.st_size)
@@ -2882,20 +2886,23 @@ def main_jellyfin_recent(
         ):
             skip += 1
             cached_msg = cache_entry.get("msg", "cached_skip")
+            lib_stats[lib_name]["skip"] += 1
             log.info(f"[{i}/{len(unique_files)}] SKIP: {file_path} :: cache({cached_msg})")
-            emit_json("result", file=str(file_path), status="SKIP", msg=f"cache({cached_msg})")
+            emit_json("result", file=str(file_path), library=lib_name, status="SKIP", msg=f"cache({cached_msg})")
             continue
 
         if dry_run:
             br = get_estimated_bitrate_kbps(file_path)
             if br is not None and br <= MAX_BR:
                 skip += 1
+                lib_stats[lib_name]["skip"] += 1
                 log.info(f"[{i}/{len(unique_files)}] WOULD_SKIP: {file_path} :: ok({br}kbps)")
-                emit_json("result", file=str(file_path), status="SKIP", msg=f"would_skip(ok({br}kbps))")
+                emit_json("result", file=str(file_path), library=lib_name, status="SKIP", msg=f"would_skip(ok({br}kbps))")
             else:
                 ok += 1
+                lib_stats[lib_name]["ok"] += 1
                 log.info(f"[{i}/{len(unique_files)}] WOULD_CONVERT: {file_path} :: {br or 'unknown'} kbps")
-                emit_json("result", file=str(file_path), status="OK", msg=f"would_convert({br or 'unknown'}kbps)")
+                emit_json("result", file=str(file_path), library=lib_name, status="OK", msg=f"would_convert({br or 'unknown'}kbps)")
             continue
 
         log.info(f"[{i}/{len(unique_files)}] Checking: {file_path}")
@@ -2904,6 +2911,7 @@ def main_jellyfin_recent(
 
         if status == "OK":
             ok += 1
+            lib_stats[lib_name]["ok"] += 1
             done[path] = current_opt
             save_done(done)
             if path in probe_cache:
@@ -2914,10 +2922,12 @@ def main_jellyfin_recent(
             if size_row:
                 saved_mb = (size_row[1] - size_row[2]) / (1024 * 1024)
                 space_saved_mb += saved_mb
+                lib_stats[lib_name]["space_saved_mb"] += saved_mb
             log.info(f"[{i}/{len(unique_files)}] OK: {file_path} :: {msg}")
-            emit_json("result", file=str(file_path), status="OK", msg=msg, before=before, after=after)
+            emit_json("result", file=str(file_path), library=lib_name, status="OK", msg=msg, before=before, after=after)
         elif status == "SKIP":
             skip += 1
+            lib_stats[lib_name]["skip"] += 1
             if not str(msg).startswith("failure_cooldown("):
                 probe_cache[path] = {
                     "size": size, "mtime_ns": mtime_ns,
@@ -2928,14 +2938,15 @@ def main_jellyfin_recent(
                     save_probe_cache(probe_cache)
                     probe_cache_dirty = False
             log.info(f"[{i}/{len(unique_files)}] SKIP: {file_path} :: {msg}")
-            emit_json("result", file=str(file_path), status="SKIP", msg=msg)
+            emit_json("result", file=str(file_path), library=lib_name, status="SKIP", msg=msg)
         else:
             fail += 1
+            lib_stats[lib_name]["fail"] += 1
             if path in probe_cache:
                 del probe_cache[path]
                 probe_cache_dirty = True
             log.error(f"[{i}/{len(unique_files)}] FAIL: {file_path} :: {msg}")
-            emit_json("result", file=str(file_path), status="FAIL", msg=msg)
+            emit_json("result", file=str(file_path), library=lib_name, status="FAIL", msg=msg)
         if probe_cache_dirty:
             save_probe_cache(probe_cache)
             probe_cache_dirty = False
@@ -2948,7 +2959,7 @@ def main_jellyfin_recent(
     emit_json("run_status", phase="done", message=f"Done. OK={ok} SKIP={skip} FAIL={fail}", files_total=len(unique_files))
     emit_json("summary", library_count=len(library_names), files_total=len(unique_files),
               ok=ok, skip=skip, fail=fail, space_saved_mb=round(space_saved_mb, 2),
-              elapsed=round(elapsed, 2))
+              libraries=lib_stats, elapsed=round(elapsed, 2))
 
 
 if __name__ == "__main__":
