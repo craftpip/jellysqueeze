@@ -76,6 +76,7 @@
             <tr><th>CPU</th><td>Any 64-bit, 2+ cores</td></tr>
             <tr><th>RAM</th><td>1 GB minimum</td></tr>
             <tr><th>GPU</th><td>NVIDIA (NVENC) <i>recommended</i></td></tr>
+            <tr><th>Output</th><td>H.264 <i>or</i> H.265 (HEVC)</td></tr>
             <tr><th>Tools</th><td>ffmpeg + ffprobe</td></tr>
             <tr><th>Server</th><td>Jellyfin 10.x</td></tr>
             <tr><th>Disk</th><td>Lots (you'll get it back!)</td></tr>
@@ -104,10 +105,27 @@
 
       <hr class="groove">
       <h3 id="install">Quick Install</h3>
-      <p>All you need is Docker. Clone the repo and start the container:</p>
-      <pre class="terminal">git clone https://github.com/craftpip/media-convert-for-jellyfin.git
+      <p>All you need is Docker. Pick your hardware to get the exact setup commands:</p>
+      <div class="install-pick" role="group" aria-label="Docker image">
+        <span class="pick-label">Docker image</span>
+        <button class="pick active" type="button" data-pick="nvidia" aria-pressed="true">NVIDIA</button>
+        <button class="pick" type="button" data-pick="intel" aria-pressed="false">Intel</button>
+        <button class="pick" type="button" data-pick="amd" aria-pressed="false">AMD</button>
+        <button class="pick" type="button" data-pick="cpu" aria-pressed="false">CPU</button>
+      </div>
+      <pre class="terminal" id="install-cmd" aria-live="polite"><span class="dim2"># 1. Clone the repo</span>
+git clone https://github.com/craftpip/media-convert-for-jellyfin.git
 cd media-convert-for-jellyfin
-docker compose up -d</pre>
+
+<span class="dim2"># 2. Configure your libraries — paths, bitrate, encoder</span>
+cp config.yml.example config.yml
+nano config.yml
+
+<span class="dim2"># 3. Build &amp; start — NVIDIA (NVENC)</span>
+docker compose up -d --build
+
+<span class="dim2"># 4. Open the control panel</span>
+http://localhost:9238/</pre>
       <p>Then open the control panel at <b>http://localhost:9238/</b> and add your first library.</p>
 
       <hr class="groove">
@@ -160,6 +178,7 @@ docker compose up -d</pre>
       <h3 id="features">Features</h3>
       <ul class="feat-list">
         <li><b>GPU acceleration</b> — NVIDIA NVENC, AMD VA-API, Intel QSV, or plain CPU</li>
+        <li><b>H.264 or H.265 output</b> — pick the codec per library; every profile maps to a matching encoder (NVENC/QSV/AMF, or libx264/libx265 on CPU)</li>
         <li><b>Target bitrate engine</b> — only oversized files get re-encoded, the rest are skipped in milliseconds</li>
         <li><b>Language cleanup</b> — keep just the audio &amp; subtitle languages you actually speak</li>
         <li><b>Surround downmix</b> — folds 7.1/5.1 audio down to stereo for non-surround setups</li>
@@ -197,6 +216,7 @@ docker compose up -d</pre>
         <h2 class="panel-title">What's New</h2>
         <div class="panel-body">
           <p><b>Hardware encoding</b> — NVIDIA NVENC, Intel QSV, AMD VA-API.</p>
+          <p><b>H.264 &amp; H.265 output</b> — your pick, per library.</p>
           <p><b>Live web UI</b> — progress bars, logs and run history.</p>
           <p><b>Scheduler</b> — plus Jellyfin "recently added" mode.</p>
           <p><b>MCP API</b> — drive runs from automation.</p>
