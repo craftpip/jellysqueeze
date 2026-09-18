@@ -113,19 +113,23 @@
         <button class="pick" type="button" data-pick="amd" aria-pressed="false">AMD</button>
         <button class="pick" type="button" data-pick="cpu" aria-pressed="false">CPU</button>
       </div>
-      <pre class="terminal" id="install-cmd" aria-live="polite"><span class="dim2"># 1. Clone the repo</span>
+      <pre class="terminal" id="install-cmd" aria-live="polite"><span class="dim2"># 1. Get the code</span>
 git clone https://github.com/craftpip/media-convert-for-jellyfin.git
 cd media-convert-for-jellyfin
 
-<span class="dim2"># 2. Configure your libraries — paths, bitrate, encoder</span>
-cp config.yml.example config.yml
-nano config.yml
+<span class="dim2"># 2. Add your keys</span>
+cp .env.example .env
+nano .env
+<span class="dim2">#   JELLYFIN_BASE_URL + JELLYFIN_API_KEY — from Jellyfin → API Keys</span>
+<span class="dim2">#   JELLYSQUEEZE_MCP_API_KEY            — pick your own token for the MCP API</span>
+<span class="dim2">#   WEBUI_PASSWORD                      — password for the control panel</span>
 
 <span class="dim2"># 3. Build &amp; start — NVIDIA (NVENC)</span>
 docker compose up -d --build
 
-<span class="dim2"># 4. Open the control panel</span>
-http://localhost:9238/</pre>
+<span class="dim2"># 4. Open the panel and add your libraries</span>
+http://localhost:9238/
+<span class="dim2">#   Libraries → Add Library — paths, bitrates, encoder</span></pre>
       <p>Then open the control panel at <b>http://localhost:9238/</b> and add your first library.</p>
 
       <hr class="groove">
