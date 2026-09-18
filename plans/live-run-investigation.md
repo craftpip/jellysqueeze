@@ -20,6 +20,8 @@ issue is resolved and verified with a controlled live run.
 
 ## Evidence So Far
 
+- Latest Shows R run `e6826d3f4e404bf9af5762a6e664aa7f` stopped at 440 processed files. Its only KonoSuba failure was `Season 01/KonoSuba - S01E09.mkv`: all normal, software-decode, and CPU attempts produced a decodable 1251.47s output while validation compared it against 1422.10s. The source has `format.start_time=170.629` and `format.duration=1422.097`; subtracting the positive start timestamp gives 1251.468s, so the output is complete and the validation calculation was wrong.
+- `get_media_duration_seconds()` now normalizes positive container start timestamps. The focused converter suite and real-media codec suite passed together: `75 passed`.
 - `To LOVE-Ru Darkness 2nd - S04E01.mkv` emits `frame=` values during NVENC
   encoding, while all `out_time_us`, `out_time_ms`, and `out_time` values are
   `N/A`.
@@ -367,3 +369,11 @@ Migration rules:
   Movies opens run `1bb1411c4c8b40d8907c4cbb2351b3fa` and displays only its
   own terminal output. A second Movies start returns HTTP `409` with
   `A conversion run is already active for this library`.
+
+## Current Investigation
+
+- User started a recent run and asked to check the error for a KonoSuba file.
+
+### User Message (Verbatim)
+
+> i did a recent run, check error in file konosuba

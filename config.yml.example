@@ -5,6 +5,7 @@ libraries:
     target_bitrate: 3000
     max_bitrate: 4500
     encoder: nvidia
+    codec: h264
     keep_audio_langs:
       - eng
       - en
@@ -20,6 +21,7 @@ libraries:
     target_bitrate: 2000
     max_bitrate: 3000
     encoder: nvidia
+    codec: h264
     workers: 2
     ignore_dirs:
       - sample
@@ -41,6 +43,7 @@ libraries:
     target_bitrate: 3000
     max_bitrate: 4500
     encoder: nvidia
+    codec: h264
     keep_audio_langs:
       - eng
       - en
@@ -56,6 +59,7 @@ libraries:
     target_bitrate: 2000
     max_bitrate: 3000
     encoder: nvidia
+    codec: h264
     keep_audio_langs:
       - eng
       - en

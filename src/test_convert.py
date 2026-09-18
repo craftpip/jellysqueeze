@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import types
 from pathlib import Path
 
@@ -58,11 +59,85 @@ def test_conversion_option_changes_with_output_settings(monkeypatch):
     monkeypatch.setattr(convert, "TARGET_BR", 3000)
     monkeypatch.setattr(convert, "MAX_BR", 4000)
     monkeypatch.setattr(convert, "TRANSCODER_PROFILE", "nvidia")
+    monkeypatch.setattr(convert, "TRANSCODER", "h264_nvenc")
     monkeypatch.setattr(convert, "ALLOWED_AUDIO_LANGS", {"eng"})
     monkeypatch.setattr(convert, "ALLOWED_SUBTITLE_LANGS", {"eng"})
     first = convert.conversion_option(None)
     monkeypatch.setattr(convert, "TRANSCODER_PROFILE", "cpu")
+    monkeypatch.setattr(convert, "TRANSCODER", "libx264")
     assert convert.conversion_option(None) != first
+
+
+def test_conversion_option_changes_with_concrete_encoder(monkeypatch):
+    monkeypatch.setattr(convert, "TRANSCODER", "h264_nvenc")
+    first = convert.conversion_option(None)
+    monkeypatch.setattr(convert, "TRANSCODER", "hevc_nvenc")
+    assert convert.conversion_option(None) != first
+
+
+def test_resolve_transcoder_maps_named_profile_to_selected_codec(monkeypatch):
+    monkeypatch.setattr(convert, "get_available_encoders", lambda: {"h264_qsv", "hevc_qsv"})
+    monkeypatch.setattr(convert, "device_available", lambda profile: profile == "intel")
+
+    ok, err = convert.resolve_transcoder("intel", codec="h265")
+
+    assert (ok, err) == (True, None)
+    assert convert.TRANSCODER == "hevc_qsv"
+    assert convert.TRANSCODER_PROFILE == "intel"
+
+
+def test_resolve_transcoder_preserves_raw_encoder(monkeypatch):
+    monkeypatch.setattr(convert, "get_available_encoders", lambda: {"hevc_qsv"})
+
+    ok, err = convert.resolve_transcoder("hevc_qsv", codec="h264")
+
+    assert (ok, err) == (True, None)
+    assert convert.TRANSCODER == "hevc_qsv"
+    assert convert.TRANSCODER_PROFILE == "custom"
+
+
+def test_profile_codec_falls_back_to_h264(monkeypatch):
+    monkeypatch.setattr(convert, "get_available_encoders", lambda: {"libx264"})
+    monkeypatch.setattr(convert, "device_available", lambda profile: profile == "cpu")
+
+    convert.set_profile_globals({"codec": "vp9", "encoder": "cpu"})
+
+    assert convert.TRANSCODER_CODEC == "h264"
+    assert convert.TRANSCODER == "libx264"
+
+
+def test_inline_codec_overrides_named_profile_without_losing_settings():
+    config = {
+        "profiles": {"intel-default": {"encoder": "intel", "target_bitrate": 2000}},
+    }
+
+    profile = convert._extract_profile(config, {"profile": "intel-default", "codec": "h265"})
+
+    assert profile == {"encoder": "intel", "target_bitrate": 2000, "codec": "h265"}
+
+
+def test_library_api_rejects_invalid_codec(monkeypatch):
+    from fastapi import HTTPException
+    from webui import main as webui_main
+
+    monkeypatch.setattr(webui_main.conv, "load_config", lambda: {"libraries": []})
+    with pytest.raises(HTTPException, match="codec must be h264 or h265") as exc:
+        asyncio.run(webui_main.api_create_library({"name": "Shows", "codec": "av1"}))
+    assert exc.value.status_code == 422
+
+
+def test_library_api_normalizes_codec(monkeypatch):
+    from webui import main as webui_main
+
+    saved = {}
+    config = {"libraries": []}
+    monkeypatch.setattr(webui_main.conv, "load_config", lambda: config)
+    monkeypatch.setattr(webui_main.conv, "save_config", lambda value: saved.update(value) or True)
+
+    result = asyncio.run(webui_main.api_create_library({"name": "Shows", "codec": " H265 "}))
+
+    assert result["library"]["codec"] == "h265"
+    assert saved["libraries"][0]["codec"] == "h265"
 
 
 def test_conversion_option_supports_crf_zero():
@@ -172,6 +247,15 @@ def test_filter_dead_streams_skips_single_video_scan(monkeypatch):
     assert calls == []
 
 
+def test_get_media_duration_seconds_normalizes_positive_start_time(monkeypatch):
+    monkeypatch.setattr(
+        convert,
+        "ffprobe_json",
+        lambda _file, _entries: {"format": {"duration": "1422.097", "start_time": "170.629"}},
+    )
+    assert convert.get_media_duration_seconds(Path("konosuba.mkv")) == pytest.approx(1251.468)
+
+
 @requires_ffmpeg
 def test_validate_output_media_passes_healthy_file(tmp_path):
     src = tmp_path / "src.mkv"
@@ -250,6 +334,24 @@ def test_select_subtitles_empty_allowed_keeps_all(monkeypatch):
     assert convert.select_subtitle_streams(subs) == [(1, "subrip", "eng"), (2, "ass", "fre")]
 
 
+@pytest.mark.parametrize("subtitle_codec", ["hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle"])
+def test_mkv_bitmap_subtitles_are_mapped_and_copied(monkeypatch, subtitle_codec):
+    monkeypatch.setattr(convert, "probe_streams", lambda f: (
+        [(0, "h264", True)], [(1, "eng", True)], [(2, subtitle_codec, "eng")],
+    ))
+    monkeypatch.setattr(convert, "ALLOWED_AUDIO_LANGS", {"eng"})
+    monkeypatch.setattr(convert, "ALLOWED_SUBTITLE_LANGS", {"eng"})
+
+    cmd, err = convert.build_ffmpeg_cmd(
+        Path("input.mkv"), Path("output.mkv"), crf=30,
+        disable_hwaccel=True, encoder="libx265", encoder_profile="cpu",
+    )
+
+    assert err is None
+    assert ["-map", "0:2"] in [cmd[i:i + 2] for i in range(len(cmd) - 1)]
+    assert ["-c:s", "copy"] == cmd[cmd.index("-c:s"):cmd.index("-c:s") + 2]
+
+
 def test_library_run_settings_from_lib_entry(monkeypatch):
     monkeypatch.setattr(convert, "DEFAULT_EXCLUDE_DIRS", {".trickplay"})
     lib = {
@@ -310,6 +412,24 @@ def test_validation_failure_advances_to_next_fallback(tmp_path, monkeypatch):
     assert status == "OK"
     assert attempts == ["h264_nvenc", "h264_nvenc", "libx264"]
     assert size_row is not None
+
+
+def test_hevc_validation_failure_falls_back_to_libx265(tmp_path, monkeypatch):
+    src = _setup_convertible_source(tmp_path, monkeypatch)
+    monkeypatch.setattr(convert, "TRANSCODER", "hevc_nvenc")
+    monkeypatch.setattr(convert, "get_available_encoders", lambda: {"hevc_nvenc", "libx265"})
+    attempts = []
+
+    def fake_validate(source, output, active_encoder):
+        attempts.append(active_encoder)
+        return len(attempts) == 3, "duration_mismatch(source=100.00, output=90.00)"
+
+    monkeypatch.setattr(convert, "validate_attempt_output", fake_validate)
+
+    status, _msg, _size_row = convert.convert_if_needed(src)
+
+    assert status == "OK"
+    assert attempts == ["hevc_nvenc", "hevc_nvenc", "libx265"]
 
 
 def test_validation_failure_all_attempts_returns_fail(tmp_path, monkeypatch):
@@ -794,3 +914,78 @@ def test_scheduler_status_keeps_next_run_after_run_now(monkeypatch):
     assert sc._last["test"]["run_id"] == "run123"
     status = sc.get_status()
     assert status[0]["next_run"] is not None
+
+
+# ── Panel auth ──────────────────────────────────────────────────────────────
+
+def _auth_client():
+    from fastapi.testclient import TestClient
+    from webui import main as webui_main
+    return webui_main, TestClient(webui_main.app)
+
+
+def test_panel_auth_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("WEBUI_PASSWORD", raising=False)
+    webui_main, client = _auth_client()
+    status = client.get("/api/auth-status")
+    assert status.status_code == 200
+    assert status.json() == {"password_set": False, "authenticated": True}
+    assert client.get("/api/config").status_code == 200
+
+
+def test_panel_auth_requires_login(monkeypatch):
+    monkeypatch.setenv("WEBUI_PASSWORD", "secret")
+    webui_main, client = _auth_client()
+    assert client.get("/api/config").status_code == 401
+    assert client.get("/api/auth-status").json() == {"password_set": True, "authenticated": False}
+    assert client.post("/api/login", json={"password": "wrong"}).status_code == 401
+    login = client.post("/api/login", json={"password": "secret"})
+    assert login.status_code == 200
+    assert login.json() == {"authenticated": True}
+    assert client.get("/api/auth-status").json() == {"password_set": True, "authenticated": True}
+    assert client.get("/api/config").status_code == 200
+    assert client.post("/api/logout").status_code == 200
+    assert client.get("/api/auth-status").json()["authenticated"] is False
+    assert client.get("/api/config").status_code == 401
+
+
+def test_panel_auth_rejects_tampered_and_expired_cookies(monkeypatch):
+    monkeypatch.setenv("WEBUI_PASSWORD", "secret")
+    webui_main, client = _auth_client()
+    client.post("/api/login", json={"password": "secret"})
+    valid = client.cookies.get(webui_main.SESSION_COOKIE)
+    client.cookies.clear()
+    payload, signature = valid.rsplit(".", 1)
+    tampered = f"{payload}.{'0' * len(signature)}"
+    assert client.get(
+        "/api/config",
+        headers={"Cookie": f"{webui_main.SESSION_COOKIE}={tampered}"},
+    ).status_code == 401
+
+    expired = webui_main._make_session_token(now=time.time() - webui_main.SESSION_TTL_SECONDS - 10)
+    assert client.get(
+        "/api/config",
+        headers={"Cookie": f"{webui_main.SESSION_COOKIE}={expired}"},
+    ).status_code == 401
+
+
+def test_panel_env_never_exposes_or_accepts_password(monkeypatch):
+    monkeypatch.setenv("WEBUI_PASSWORD", "secret")
+    webui_main, client = _auth_client()
+    saved = {}
+    monkeypatch.setattr(webui_main.conv, "save_env", lambda overrides: saved.update(overrides) or True)
+    client.post("/api/login", json={"password": "secret"})
+    assert "WEBUI_PASSWORD" not in client.get("/api/env").json()
+    assert client.post("/api/env", json={"WEBUI_PASSWORD": "hacked", "TARGET_BR": 2500}).status_code == 200
+    assert "WEBUI_PASSWORD" not in saved
+    assert saved["TARGET_BR"] == "2500"
+    assert webui_main._panel_password() == "secret"
+
+
+def test_panel_auth_rejects_websocket_without_session(monkeypatch):
+    monkeypatch.setenv("WEBUI_PASSWORD", "secret")
+    webui_main, client = _auth_client()
+    from fastapi import WebSocketDisconnect
+    with client.websocket_connect("/api/ws/nonexistent") as ws:
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_json()

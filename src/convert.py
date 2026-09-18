@@ -32,6 +32,7 @@ DEFAULT_CRF = int(os.getenv("DEFAULT_CRF", 23))
 DEFAULT_MIN_SAVINGS_PCT = int(os.getenv("MIN_SAVINGS_PCT", 0))
 TRANSCODER = "h264_nvenc"
 TRANSCODER_PROFILE = "nvidia"
+TRANSCODER_CODEC = os.getenv("TRANSCODER_CODEC", "h264").strip().lower()
 JSON_MODE = False
 FFMPEG_CMD = "ffmpeg"
 FFPROBE_CMD = "ffprobe"
@@ -84,33 +85,37 @@ TRANSCODER_ALIASES = {
     "nvidia": "nvidia",
     "nvidiagpu": "nvidia",
     "nvenc": "nvidia",
-    "h264_nvenc": "nvidia",
     "amdgpu": "amdgpu",
     "amd": "amdgpu",
     "amf": "amdgpu",
-    "h264_amf": "amdgpu",
     "intel": "intel",
     "intelgpu": "intel",
     "qsv": "intel",
-    "h264_qsv": "intel",
-    "hevc_qsv": "intel",
     "cpu": "cpu",
     "software": "cpu",
-    "x264": "cpu",
-    "libx264": "cpu",
-    "x265": "cpu",
-    "libx265": "cpu",
     "vaapi": "vaapi",
-    "h264_vaapi": "vaapi",
 }
 
-TRANSCODER_ENCODERS = {
-    "nvidia": "h264_nvenc",
-    "amdgpu": "h264_amf",
-    "intel": "h264_qsv",
-    "cpu": "libx264",
-    "vaapi": "h264_vaapi",
+CODEC_ENCODERS = {
+    "h264": {
+        "nvidia": "h264_nvenc",
+        "amdgpu": "h264_amf",
+        "intel": "h264_qsv",
+        "cpu": "libx264",
+        "vaapi": "h264_vaapi",
+    },
+    "h265": {
+        "nvidia": "hevc_nvenc",
+        "amdgpu": "hevc_amf",
+        "intel": "hevc_qsv",
+        "cpu": "libx265",
+        "vaapi": "hevc_vaapi",
+    },
 }
+
+if TRANSCODER_CODEC not in CODEC_ENCODERS:
+    log.warning(f"Unknown TRANSCODER_CODEC '{TRANSCODER_CODEC}'; using h264")
+    TRANSCODER_CODEC = "h264"
 
 
 _progress_lines = 0
@@ -286,17 +291,26 @@ def device_available(profile: str) -> bool:
     return False
 
 
-def resolve_transcoder(use_value: str):
+def resolve_transcoder(use_value: str, codec: str | None = None):
     global TRANSCODER, TRANSCODER_PROFILE
 
     requested = (use_value or "").strip().lower()
     if not requested:
         return True, None
-    profile = TRANSCODER_ALIASES.get(requested)
     encoders = get_available_encoders()
 
+    # A concrete ffmpeg encoder must not be remapped through its hardware profile.
+    if requested in encoders:
+        TRANSCODER = requested
+        TRANSCODER_PROFILE = "custom"
+        return True, None
+
+    profile = TRANSCODER_ALIASES.get(requested)
     if profile:
-        encoder = TRANSCODER_ENCODERS[profile]
+        selected_codec = (codec or TRANSCODER_CODEC).strip().lower()
+        if selected_codec not in CODEC_ENCODERS:
+            selected_codec = "h264"
+        encoder = CODEC_ENCODERS[selected_codec][profile]
         if encoder not in encoders:
             return False, f"encoder_not_supported({encoder})"
         if not device_available(profile):
@@ -305,13 +319,7 @@ def resolve_transcoder(use_value: str):
         TRANSCODER_PROFILE = profile
         return True, None
 
-    # Allow passing a raw ffmpeg encoder name directly (e.g. --use h264_nvenc).
-    if requested in encoders:
-        TRANSCODER = requested
-        TRANSCODER_PROFILE = "custom"
-        return True, None
-
-    supported = ", ".join(sorted(TRANSCODER_ENCODERS.keys()))
+    supported = ", ".join(sorted(CODEC_ENCODERS["h264"].keys()))
     return False, f"unknown_transcoder({requested}); valid profiles: {supported}"
 
 
@@ -516,7 +524,7 @@ def get_profile_settings(config: dict, profile_name: str) -> dict | None:
 
 
 _PROFILE_KEYS = frozenset({
-    "target_bitrate", "max_bitrate", "encoder",
+    "target_bitrate", "max_bitrate", "encoder", "codec",
     "keep_audio_langs", "keep_subtitle_langs",
     "minimum_savings_percent",
 })
@@ -529,25 +537,38 @@ def _extract_profile(config: dict, lib: dict) -> dict | None:
     Falls back to old-style ``profile:`` reference for backward compat.
     """
     inline = {k: lib[k] for k in _PROFILE_KEYS if k in lib}
-    if inline:
-        return inline
     profile_name = lib.get("profile", "")
+    base = dict(get_profile_settings(config, profile_name) or {}) if profile_name else {}
+    if inline:
+        base.update(inline)
+    if base:
+        return base
     if profile_name:
         return get_profile_settings(config, profile_name)
     return None
 
 
 def set_profile_globals(profile: dict) -> None:
-    global TARGET_BR, MAX_BR, BUFSIZE, TRANSCODER, TRANSCODER_PROFILE, ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS
+    global TARGET_BR, MAX_BR, BUFSIZE, TRANSCODER, TRANSCODER_PROFILE, TRANSCODER_CODEC, ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS
     if "target_bitrate" in profile:
         TARGET_BR = int(profile["target_bitrate"])
     if "max_bitrate" in profile:
         MAX_BR = int(profile["max_bitrate"])
     BUFSIZE = MAX_BR * 2
+    if "codec" in profile:
+        codec = str(profile["codec"]).strip().lower()
+        if codec not in CODEC_ENCODERS:
+            log.warning(f"Profile codec '{profile['codec']}' is unknown; using h264")
+            codec = "h264"
+        TRANSCODER_CODEC = codec
     if "encoder" in profile:
-        ok, err = resolve_transcoder(profile["encoder"])
+        ok, err = resolve_transcoder(profile["encoder"], codec=TRANSCODER_CODEC)
         if not ok:
             log.warning(f"Profile encoder '{profile['encoder']}' not available: {err}")
+    elif TRANSCODER_CODEC != "h264" and TRANSCODER_PROFILE in CODEC_ENCODERS[TRANSCODER_CODEC]:
+        ok, err = resolve_transcoder(TRANSCODER_PROFILE, codec=TRANSCODER_CODEC)
+        if not ok:
+            log.warning(f"Profile codec '{TRANSCODER_CODEC}' not available: {err}")
     if "keep_audio_langs" in profile:
         ALLOWED_AUDIO_LANGS = set(lang.strip().lower() for lang in profile["keep_audio_langs"])
     if "keep_subtitle_langs" in profile:
@@ -559,7 +580,7 @@ def conversion_option(crf: int | None, min_savings_pct: int = 0) -> str:
     mode = f"crf:{crf}" if crf is not None else f"br:{TARGET_BR}"
     subtitles = ",".join(sorted(ALLOWED_SUBTITLE_LANGS or []))
     audio = ",".join(sorted(ALLOWED_AUDIO_LANGS))
-    return f"{mode}|max:{MAX_BR}|encoder:{TRANSCODER_PROFILE}|audio:{audio}|subtitles:{subtitles}|savings:{min_savings_pct}"
+    return f"{mode}|max:{MAX_BR}|encoder:{TRANSCODER}|audio:{audio}|subtitles:{subtitles}|savings:{min_savings_pct}"
 
 
 def normalize_library_paths(lib: dict) -> list[str]:
@@ -632,7 +653,7 @@ def run_library_scan(
     scanned_paths: list[tuple[Path, list[Path], int, float]] | None = None,
     exclude_dirs: set[str] | None = None,
 ) -> tuple[int, int, int, float, bool]:
-    global TARGET_BR, MAX_BR, BUFSIZE, TRANSCODER, TRANSCODER_PROFILE, ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS
+    global TARGET_BR, MAX_BR, BUFSIZE, TRANSCODER, TRANSCODER_PROFILE, TRANSCODER_CODEC, ALLOWED_AUDIO_LANGS, ALLOWED_SUBTITLE_LANGS
 
     if profile:
         old_br = TARGET_BR
@@ -640,12 +661,13 @@ def run_library_scan(
         old_bufsize = BUFSIZE
         old_encoder = TRANSCODER
         old_profile = TRANSCODER_PROFILE
+        old_codec = TRANSCODER_CODEC
         old_langs = set(ALLOWED_AUDIO_LANGS)
         old_sub_langs = set(ALLOWED_SUBTITLE_LANGS) if ALLOWED_SUBTITLE_LANGS is not None else None
         set_profile_globals(profile)
     else:
         old_br = old_max = old_bufsize = 0
-        old_encoder = old_profile = ""
+        old_encoder = old_profile = old_codec = ""
         old_langs = set()
         old_sub_langs = None
 
@@ -679,6 +701,7 @@ def run_library_scan(
             BUFSIZE = old_bufsize
             TRANSCODER = old_encoder
             TRANSCODER_PROFILE = old_profile
+            TRANSCODER_CODEC = old_codec
             ALLOWED_AUDIO_LANGS = old_langs
             ALLOWED_SUBTITLE_LANGS = old_sub_langs
 
@@ -1240,11 +1263,15 @@ def can_resume_partial(in_file: Path, partial: Path, active_encoder: str) -> tup
 
 
 def get_media_duration_seconds(file: Path) -> float | None:
-    probe = ffprobe_json(file, "format=duration")
+    probe = ffprobe_json(file, "format=duration,start_time")
     if not probe:
         return None
     try:
-        return float(probe["format"]["duration"])
+        format_ = probe["format"]
+        duration = float(format_["duration"])
+        start_time = float(format_.get("start_time") or 0)
+        # Some Matroska files report duration as an absolute end timestamp.
+        return duration - start_time if 0 < start_time < duration else duration
     except Exception:
         return None
 
@@ -1756,10 +1783,11 @@ def convert_if_needed(file: Path, crf: int | None = None, verbose: bool = False,
         ("normal", {}),
         ("software_decode", {"disable_hwaccel": True}),
     ]
-    if TRANSCODER != "libx264" and "libx264" in get_available_encoders():
+    cpu_encoder = "libx265" if expected_output_video_codec(TRANSCODER) == "hevc" else "libx264"
+    if TRANSCODER != cpu_encoder and cpu_encoder in get_available_encoders():
         attempts.append((
             "cpu",
-            {"disable_hwaccel": True, "encoder": "libx264", "encoder_profile": "cpu"},
+            {"disable_hwaccel": True, "encoder": cpu_encoder, "encoder_profile": "cpu"},
         ))
 
     last_error = "ffmpeg_failed"

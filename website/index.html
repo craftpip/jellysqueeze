@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="JellySqueeze — the video compression utility for Jellyfin. Shrink oversized videos, strip unwanted audio and subtitle tracks, save gigabytes of disk space.">
+  <title>JellySqueeze — The Video Compression Utility for Jellyfin</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23000080'/%3E%3Ctext x='8' y='12.5' font-size='11' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'%3EJ%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<div class="page">
+
+  <!-- ══════════ MASTHEAD ══════════ -->
+  <header class="masthead" id="top">
+    <div class="logo-box" aria-hidden="true">
+      <svg viewBox="0 0 64 64" width="54" height="54" role="img" aria-label="JellySqueeze logo">
+        <rect x="2" y="2" width="60" height="60" fill="#000080" stroke="#ffffff" stroke-width="2"/>
+        <rect x="14" y="34" width="6" height="18" fill="#c0c0c0"/>
+        <rect x="23" y="28" width="6" height="24" fill="#c0c0c0"/>
+        <rect x="32" y="20" width="6" height="32" fill="#ffff00"/>
+        <rect x="41" y="12" width="6" height="40" fill="#c0c0c0"/>
+        <rect x="14" y="52" width="33" height="3" fill="#ffffff"/>
+      </svg>
+    </div>
+    <div class="masthead-text">
+      <h1>Jelly<em>Squeeze</em> <span class="version-tag">v3.0</span></h1>
+      <p class="tagline">The Video Compression Utility for Jellyfin&trade;</p>
+      <p class="stars" aria-label="Rated 5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733; <span>"Squeezed 195&nbsp;GB off my library!" — Satisfied User</span></p>
+    </div>
+    <div class="masthead-side">
+      <p class="new-flash"><span class="blink">NEW!</span> GPU edition</p>
+      <a class="dl-button" href="#download">FREE<br>DOWNLOAD</a>
+    </div>
+  </header>
+
+  <!-- ══════════ NAV BAR ══════════ -->
+  <nav class="navbar" aria-label="Site navigation">
+    <a href="#top" class="nav-btn">Home</a>
+    <a href="#download" class="nav-btn">Download</a>
+    <a href="#features" class="nav-btn">Features</a>
+    <a href="#screenshot" class="nav-btn">Screenshots</a>
+    <a href="#support" class="nav-btn">Support</a>
+  </nav>
+
+  <!-- ══════════ NEWS TICKER ══════════ -->
+  <div class="ticker" role="marquee" aria-label="Latest news">
+    <span class="ticker-label">NEWS:</span>
+    <div class="ticker-track">
+      <span class="ticker-text">
+        &#9733; JellySqueeze 3.0 is here — now with NVIDIA NVENC hardware acceleration! &#9733;
+        Save up to 90% disk space per file! &#9733;
+        New: automatic "Recently Added" Jellyfin scans! &#9733;
+        Free for home use — no registration required! &#9733;&nbsp;
+      </span>
+      <span class="ticker-text" aria-hidden="true">
+        &#9733; JellySqueeze 3.0 is here — now with NVIDIA NVENC hardware acceleration! &#9733;
+        Save up to 90% disk space per file! &#9733;
+        New: automatic "Recently Added" Jellyfin scans! &#9733;
+        Free for home use — no registration required! &#9733;&nbsp;
+      </span>
+    </div>
+  </div>
+
+  <!-- ══════════ THREE COLUMNS ══════════ -->
+  <main class="columns">
+
+    <!-- ── LEFT RAIL ── -->
+    <aside class="rail left" aria-label="Download and requirements">
+      <section class="panel" id="download">
+        <h2 class="panel-title">Latest Version</h2>
+        <div class="panel-body center">
+          <p class="big-ver">JellySqueeze 3.0</p>
+          <p class="file-meta">source snapshot .zip<br>Linux &middot; Docker &middot; GitHub</p>
+          <a class="dl-button big" href="https://github.com/craftpip/media-convert-for-jellyfin/archive/refs/heads/main.zip">DOWNLOAD<br>NOW!</a>
+          <p class="stamp" aria-hidden="true">100% FREE</p>
+          <p class="fineprint">Free for home use.<br>No spyware. No ads.<br>No registration.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel-title">System Requirements</h2>
+        <div class="panel-body">
+          <table class="spec-table">
+            <tr><th>OS</th><td>Linux (Docker)</td></tr>
+            <tr><th>CPU</th><td>Any 64-bit, 2+ cores</td></tr>
+            <tr><th>RAM</th><td>1 GB minimum</td></tr>
+            <tr><th>GPU</th><td>NVIDIA (NVENC) <i>recommended</i></td></tr>
+            <tr><th>Tools</th><td>ffmpeg + ffprobe</td></tr>
+            <tr><th>Server</th><td>Jellyfin 10.x</td></tr>
+            <tr><th>Disk</th><td>Lots (you'll get it back!)</td></tr>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel-title">Quick Install</h2>
+        <div class="panel-body">
+          <pre class="terminal">git clone https://github.com/
+  craftpip/media-convert-
+  for-jellyfin.git
+cd media-convert-for-jellyfin
+docker compose up -d</pre>
+        </div>
+      </section>
+    </aside>
+
+    <!-- ── CENTER ── -->
+    <article class="center-col">
+      <h2 class="welcome">Welcome to JellySqueeze!</h2>
+      <p>
+        <b>JellySqueeze</b> is the essential video compression utility for your
+        <b>Jellyfin</b> media server. Self-hosted video libraries pile up enormous
+        files — a single episode can waste <i>gigabytes</i> of disk space on bitrates
+        your TV can't even display!
+      </p>
+      <p>
+        Point JellySqueeze at your library and it recursively scans every video,
+        <b>re-encodes oversized files</b> to a sensible target bitrate with
+        <b>GPU acceleration</b>, and <b>strips audio &amp; subtitle tracks</b> in
+        languages you don't speak — all while keeping your existing
+        H.264/HEVC files untouched. It remembers what it already squeezed, so you
+        can stop and resume any time.
+      </p>
+
+      <hr class="groove">
+      <h3 id="screenshot">The Control Panel <span class="new">NEW!</span></h3>
+      <p>Every copy ships with a built-in <b>Web Control Panel</b> — start runs, watch
+        live progress, and browse run history from any browser on your network:</p>
+
+      <figure class="shot-frame">
+        <figcaption class="shot-titlebar">
+          <span>JellySqueeze 3.0 — Control Panel</span>
+          <span class="win-btns" aria-hidden="true"><i>_</i><i>&square;</i><i>&times;</i></span>
+        </figcaption>
+        <div class="shot-body">
+          <div class="shot-side">
+            <b>JellySqueeze</b>
+            <span class="on">Dashboard</span><span>Add Library</span>
+            <span>Run History</span><span>Schedules</span><span>Errors</span>
+          </div>
+          <div class="shot-main">
+            <div class="shot-cards">
+              <div><b>200</b>Total runs</div>
+              <div><b>92</b>Completed</div>
+              <div><b>195 GB</b>Saved</div>
+            </div>
+            <table class="shot-table">
+              <tr><th>Library</th><th>Last run</th><th>Saved</th><th>Status</th></tr>
+              <tr><td>Movies R</td><td>today</td><td>61.2 GB</td><td class="ok">DONE</td></tr>
+              <tr><td>Shows</td><td>today</td><td>54.8 GB</td><td class="ok">DONE</td></tr>
+              <tr><td>Movies</td><td>yesterday</td><td>47.5 GB</td><td class="ok">DONE</td></tr>
+              <tr><td>Shows R</td><td>02:14</td><td>31.9 GB</td><td class="run">RUNNING &#9654;</td></tr>
+            </table>
+            <div class="shot-bar"><i style="width:72%"></i></div>
+            <p class="shot-cap">Squeezing: <b>S02E14 — "The One With 18 Mbps.mkv"</b> … 72%</p>
+          </div>
+        </div>
+        <div class="shot-status"><span>&#9679; Ready</span><span>Squeezing&hellip; 72%</span></div>
+        <figcaption class="shot-foot">Fig. 1 — The Control Panel, hard at work.</figcaption>
+      </figure>
+
+      <hr class="groove">
+      <h3 id="features">Features</h3>
+      <ul class="feat-list">
+        <li><b>GPU acceleration</b> — NVIDIA NVENC, AMD VA-API, Intel QSV, or plain CPU</li>
+        <li><b>Target bitrate engine</b> — only oversized files get re-encoded, the rest are skipped in milliseconds</li>
+        <li><b>Language cleanup</b> — keep just the audio &amp; subtitle languages you actually speak</li>
+        <li><b>Surround downmix</b> — folds 7.1/5.1 audio down to stereo for non-surround setups</li>
+        <li><b>Resume-safe</b> — every finished file is logged; stop anytime and pick up where you left off</li>
+        <li><b>Parallel workers</b> — squeeze 2–4 files at once on capable hardware</li>
+        <li><b>Jellyfin "Recently Added"</b> — nightly scans that only touch new arrivals</li>
+        <li><b>Scheduler</b> — daily runs at 3 AM while you sleep</li>
+        <li><b>Atomic replacement</b> — originals are swapped only after the new file passes validation</li>
+        <li><b>Live web UI</b> — progress bars, logs and history over WebSocket</li>
+      </ul>
+
+      <hr class="groove">
+      <h3>Before &amp; After</h3>
+      <table class="ba-table">
+        <tr><th>File</th><th>Before</th><th>After</th><th>Saved</th></tr>
+        <tr><td>Blockbuster.Movie.2019.1080p.mkv</td><td>14.2 GB</td><td>3.1 GB</td><td class="ok">78%</td></tr>
+        <tr><td>Show.S02E14.HDTV.x264.mkv</td><td>4.8 GB</td><td>1.2 GB</td><td class="ok">75%</td></tr>
+        <tr><td>Documentary.2160p.BluRay.mkv</td><td>32.6 GB</td><td>6.4 GB</td><td class="ok">80%</td></tr>
+      </table>
+
+      <hr class="groove">
+      <h3 id="support">Support</h3>
+      <p>
+        Questions? Bug reports? Feature requests? File an issue on
+        <a href="https://github.com/craftpip/media-convert-for-jellyfin/issues">GitHub Issues</a>
+        or read the <a href="https://github.com/craftpip/media-convert-for-jellyfin">README</a>.
+        Registered users get a reply within 48 hours. Unregistered users too — it's all free!
+      </p>
+    </article>
+
+    <!-- ── RIGHT RAIL ── -->
+    <aside class="rail right" aria-label="News and links">
+      <section class="panel">
+        <h2 class="panel-title">What's New</h2>
+        <div class="panel-body">
+          <p><span class="new">NEW!</span> <b>v3.0</b> — NVENC hardware encoding, live web UI, scheduler, MCP API.</p>
+          <p><b>v2.1</b> — Jellyfin "recently added" mode, parallel workers.</p>
+          <p><b>v2.0</b> — SQLite state DB, probe cache, atomic file replacement.</p>
+          <p><b>v1.0</b> — Initial release. It squeezed!</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel-title">Quick Links</h2>
+        <div class="panel-body links">
+          <a href="https://github.com/craftpip/media-convert-for-jellyfin">&raquo; Source code (GitHub)</a>
+          <a href="https://github.com/craftpip/media-convert-for-jellyfin/issues">&raquo; Report a bug</a>
+          <a href="#download">&raquo; Download</a>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2 class="panel-title">Visitors</h2>
+        <div class="panel-body center">
+          <p class="counter" id="hit-counter" aria-label="Visitor count">000001</p>
+          <p class="fineprint">squeezers served since 1998</p>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <!-- ══════════ FOOTER ══════════ -->
+  <footer class="footer">
+    <hr>
+    <p>
+      <a href="#top">Home</a> |
+      <a href="#download">Download</a> |
+      <a href="#features">Features</a> |
+      <a href="https://github.com/craftpip/media-convert-for-jellyfin">GitHub</a>
+    </p>
+    <p>&copy; 1998–2026 JellySqueeze Software. All rights reserved. Jellyfin is a trademark of its respective owners.</p>
+    <p class="badges" aria-label="Browser badges">
+      <span class="badge88">BEST VIEWED WITH IE&nbsp;5.0</span>
+      <span class="badge88 nets">NETSCAPE NOW!</span>
+    </p>
+    <p class="fineprint">This page last updated September 18, 2026 &middot; Best viewed at 800&times;600 &middot; <a href="https://github.com/craftpip/media-convert-for-jellyfin/issues">Webmaster</a></p>
+  </footer>
+
+</div>
+<script src="script.js"></script>
+</body>
+</html>

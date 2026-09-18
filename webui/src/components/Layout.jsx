@@ -2,9 +2,16 @@ import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { api } from '../api'
 
-export default function Layout() {
+export default function Layout({ passwordSet }) {
   const [stats, setStats] = useState(null)
   const [pageTitle, setPageTitle] = useState('Dashboard')
+
+  const signOut = async () => {
+    try {
+      await api('POST', '/api/logout')
+    } catch {}
+    window.location.reload()
+  }
 
   useEffect(() => {
     const poll = async () => {
@@ -28,17 +35,17 @@ export default function Layout() {
     <div className="app">
       <div className="topbar">
         <div className="topbar-left">
-          <div className="brand">
+          <NavLink to="/" end className="brand" aria-label="JellySqueeze dashboard">
             <svg className="logo-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <rect x="6" y="6" width="12" height="12" rx="2" />
               <path d="M12 2.5v5M12 7.5l-2.5-2.5M12 7.5l2.5-2.5" />
               <path d="M12 21.5v-5M12 16.5l-2.5 2.5M12 16.5l2.5 2.5" />
             </svg>
             <h1>JellySqueeze</h1>
-          </div>
+          </NavLink>
           <ul className="nav">
             <li><NavLink to="/" end>Dashboard</NavLink></li>
-            <li><NavLink to="/new-library">New Library</NavLink></li>
+            <li><NavLink to="/new-library">Add Library</NavLink></li>
             <li><NavLink to="/runs">Run History</NavLink></li>
             <li><NavLink to="/schedules">Schedules</NavLink></li>
             <li><NavLink to="/errors">Errors</NavLink></li>
@@ -62,6 +69,9 @@ export default function Layout() {
             </>
           )}
         </div>
+        {passwordSet && (
+          <button type="button" className="btn outline sm signout" onClick={signOut}>Signout</button>
+        )}
       </div>
       <div className="content">
         <Outlet context={{ setPageTitle }} />

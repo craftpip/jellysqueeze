@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import hmac
 import json
 import os
 import subprocess
@@ -10,8 +12,8 @@ from typing import Any
 import psutil
 import state_db
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -25,6 +27,62 @@ from webui.scheduler import Scheduler, validate_schedule, schedule_to_req
 app = FastAPI(title="JellySqueeze — Web UI")
 
 scheduler = Scheduler()
+
+SESSION_COOKIE = "jellysqueeze_session"
+SESSION_TTL_SECONDS = 30 * 24 * 3600
+_AUTH_OPEN_PATHS = {"/api/auth-status", "/api/login", "/api/logout"}
+
+
+def _panel_password() -> str:
+    return os.getenv("WEBUI_PASSWORD", "")
+
+
+def _auth_enabled() -> bool:
+    return bool(_panel_password().strip())
+
+
+def _session_signature(payload: str) -> str:
+    return hmac.new(
+        _panel_password().encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _make_session_token(now: float | None = None) -> str:
+    expiry = int((time.time() if now is None else now) + SESSION_TTL_SECONDS)
+    payload = str(expiry)
+    return f"{payload}.{_session_signature(payload)}"
+
+
+def _session_valid(token: str) -> bool:
+    if not token:
+        return False
+    try:
+        payload, signature = token.rsplit(".", 1)
+        expected = _session_signature(payload)
+        if not hmac.compare_digest(signature, expected):
+            return False
+        expiry = int(payload)
+    except (ValueError, AttributeError):
+        return False
+    return expiry > time.time()
+
+
+def _password_matches(submitted: str) -> bool:
+    expected = _panel_password()
+    if not expected:
+        return False
+    return hmac.compare_digest(submitted.encode("utf-8"), expected.encode("utf-8"))
+
+
+@app.middleware("http")
+async def panel_auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if _auth_enabled() and path.startswith("/api/") and path not in _AUTH_OPEN_PATHS:
+        if not _session_valid(request.cookies.get(SESSION_COOKIE, "")):
+            return JSONResponse({"detail": "authentication required"}, status_code=401)
+    return await call_next(request)
 
 
 @app.on_event("startup")
@@ -92,6 +150,15 @@ def _load_config_safe():
     }
 
 
+def _validate_library_codec(body: dict) -> None:
+    if "codec" not in body:
+        return
+    codec = body["codec"]
+    if not isinstance(codec, str) or codec.strip().lower() not in conv.CODEC_ENCODERS:
+        raise HTTPException(status_code=422, detail="codec must be h264 or h265")
+    body["codec"] = codec.strip().lower()
+
+
 def build_convert_cmd(req: dict) -> list[str]:
     python = sys.executable
     cmd = [python, str(Path(BASE_DIR) / "src" / "convert.py")]
@@ -144,6 +211,41 @@ def build_convert_cmd(req: dict) -> list[str]:
     if f.get("cleanup_tmp"):
         cmd.append("--cleanup-tmp")
     return cmd
+
+
+# ── Panel Auth ──────────────────────────────────────────────────────────────
+
+@app.get("/api/auth-status")
+def api_auth_status(request: Request):
+    enabled = _auth_enabled()
+    return {
+        "password_set": enabled,
+        "authenticated": (not enabled) or _session_valid(request.cookies.get(SESSION_COOKIE, "")),
+    }
+
+
+@app.post("/api/login")
+async def api_login(body: dict):
+    submitted = str((body or {}).get("password") or "")
+    if not _password_matches(submitted):
+        raise HTTPException(status_code=401, detail="Invalid password")
+    response = JSONResponse({"authenticated": True})
+    response.set_cookie(
+        SESSION_COOKIE,
+        _make_session_token(),
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True,
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
+@app.post("/api/logout")
+async def api_logout():
+    response = JSONResponse({"logged_out": True})
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return response
 
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -343,6 +445,7 @@ def api_get_library(name: str):
 
 @app.post("/api/libraries")
 async def api_create_library(body: dict):
+    _validate_library_codec(body)
     config = conv.load_config()
     if config is None:
         config = {"libraries": []}
@@ -358,7 +461,7 @@ async def api_create_library(body: dict):
     entry = {"name": name}
     if body.get("paths"):
         entry["paths"] = body["paths"] if isinstance(body["paths"], list) else [body["paths"]]
-    for key in ("encoder", "target_bitrate", "max_bitrate", "keep_audio_langs",
+    for key in ("encoder", "codec", "target_bitrate", "max_bitrate", "keep_audio_langs",
                 "keep_subtitle_langs", "minimum_savings_percent",
                 "workers", "ignore_paths", "ignore_dirs"):
         if key in body:
@@ -373,6 +476,7 @@ async def api_create_library(body: dict):
 
 @app.put("/api/libraries/{name}")
 async def api_update_library(name: str, body: dict):
+    _validate_library_codec(body)
     config = conv.load_config()
     if not config:
         raise HTTPException(status_code=404, detail="config not found")
@@ -384,7 +488,7 @@ async def api_update_library(name: str, body: dict):
                 lib["name"] = body["name"].strip()
             if "paths" in body:
                 lib["paths"] = body["paths"] if isinstance(body["paths"], list) else [body["paths"]]
-            for key in ("encoder", "target_bitrate", "max_bitrate", "keep_audio_langs",
+            for key in ("encoder", "codec", "target_bitrate", "max_bitrate", "keep_audio_langs",
                         "keep_subtitle_langs", "minimum_savings_percent",
                         "workers", "ignore_paths", "ignore_dirs"):
                 if key in body:
@@ -699,6 +803,10 @@ def api_log(run_id: str):
 
 @app.websocket("/api/ws/{run_id}")
 async def api_ws(websocket: WebSocket, run_id: str):
+    if _auth_enabled() and not _session_valid(websocket.cookies.get(SESSION_COOKIE, "")):
+        await websocket.accept()
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
     mgr = get_run(run_id)
     if not mgr:
@@ -788,8 +896,19 @@ def _spa_index():
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+WEBSITE_DIR = BASE_DIR / "website"
+if WEBSITE_DIR.exists():
+    app.mount("/website", StaticFiles(directory=str(WEBSITE_DIR), html=True), name="website")
+
 from webui.mcp import mcp_app
 app.include_router(mcp_app)
+
+
+@app.get("/website")
+def website_index():
+    # Trailing-slash canonical URL: without it, browsers resolve the
+    # page's relative asset URLs (style.css, script.js) against "/".
+    return RedirectResponse(url="/website/", status_code=307)
 
 
 @app.get("/")

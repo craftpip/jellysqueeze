@@ -179,14 +179,18 @@ export default function Settings() {
                 </div>
               </div>
               <div className="form-row">
-                <div className="field checkbox">
-                  <input type="checkbox" checked={form.CLEANUP_TMP} onChange={set('CLEANUP_TMP')} id="ck-cleanup" />
-                  <label htmlFor="ck-cleanup">Clean temp files before scan</label>
+                <div className="field checkbox stacked">
+                  <div className="ck-line">
+                    <input type="checkbox" checked={form.CLEANUP_TMP} onChange={set('CLEANUP_TMP')} id="ck-cleanup" />
+                    <label htmlFor="ck-cleanup">Clean temp files before scan</label>
+                  </div>
                   <Hint>Remove leftover .__transcoding__ files on start</Hint>
                 </div>
-                <div className="field checkbox">
-                  <input type="checkbox" checked={form.BACKUP_ORIGINALS} onChange={set('BACKUP_ORIGINALS')} id="ck-orig" />
-                  <label htmlFor="ck-orig">Keep original backup</label>
+                <div className="field checkbox stacked">
+                  <div className="ck-line">
+                    <input type="checkbox" checked={form.BACKUP_ORIGINALS} onChange={set('BACKUP_ORIGINALS')} id="ck-orig" />
+                    <label htmlFor="ck-orig">Keep original backup</label>
+                  </div>
                   <Hint>Rename originals with .__original__ suffix</Hint>
                 </div>
               </div>

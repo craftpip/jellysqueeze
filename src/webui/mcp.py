@@ -31,6 +31,7 @@ def mcp_profiles():
             "target_bitrate": settings.get("target_bitrate"),
             "max_bitrate": settings.get("max_bitrate"),
             "encoder": settings.get("encoder", "nvidia"),
+            "codec": settings.get("codec", "h264"),
         })
     return {"profiles": result}
 
@@ -50,7 +51,7 @@ def mcp_libraries():
             "paths": conv.normalize_library_paths(lib),
             "profile": profile_name,
         }
-        inline_keys = {"target_bitrate", "max_bitrate", "encoder",
+        inline_keys = {"target_bitrate", "max_bitrate", "encoder", "codec",
                        "keep_audio_langs", "keep_subtitle_langs",
                        "minimum_savings_percent"}
         inline = {k: lib[k] for k in inline_keys if k in lib}

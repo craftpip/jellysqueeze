@@ -13,6 +13,8 @@ Current downloaded fixtures:
 - `Test Jellyfin 1080p AVC 10M.mp4`
 - `Test Jellyfin 1080p HEVC 8bit 10M.mp4`
 - `Test Jellyfin 1080p HEVC 10bit 10M.mp4`
+- `matroska-test5-multi-audio-subtitles.mkv` - official Matroska test file with
+  two audio tracks and seven embedded subtitles.
 
 Each fixture has its upstream `.sha256sum` file beside it. Run the test module
 to verify checksums and probe every downloaded stream:

@@ -30,7 +30,7 @@ export default function LibraryForm() {
   useEffect(() => setPageTitle(isEdit ? 'Edit: ' + name : 'New Library'), [name, isEdit, setPageTitle])
 
   const [form, setForm] = useState({
-    name: '', encoder: 'nvidia', target_bitrate: '', max_bitrate: '',
+    name: '', encoder: 'nvidia', codec: 'h264', target_bitrate: '', max_bitrate: '',
     minimum_savings_percent: 10, workers: 1, ignore_dirs: '', ignore_paths: '',
     keep_audio_langs: '',
     keep_subtitle_langs: '',
@@ -52,6 +52,7 @@ export default function LibraryForm() {
       setForm({
         name: name,
         encoder: p.encoder || 'nvidia',
+        codec: p.codec || 'h264',
         target_bitrate: p.target_bitrate || '',
         max_bitrate: p.max_bitrate || '',
         minimum_savings_percent: p.minimum_savings_percent || 10,
@@ -66,6 +67,7 @@ export default function LibraryForm() {
         target: parseInt(p.target_bitrate) || 3000,
         max: parseInt(p.max_bitrate) || 3300,
         encoder: (p.encoder || 'nvidia').trim().toLowerCase(),
+        codec: p.codec || 'h264',
         audio: normLangs((p.keep_audio_langs || []).join(',')),
         subtitles: normLangs((p.keep_subtitle_langs || []).join(',')),
         savings: parseInt(p.minimum_savings_percent) || 10,
@@ -118,6 +120,7 @@ export default function LibraryForm() {
     const body = {
       name: form.name.trim(),
       encoder: form.encoder,
+      codec: form.codec,
       target_bitrate: parseInt(form.target_bitrate) || undefined,
       max_bitrate: parseInt(form.max_bitrate) || undefined,
       minimum_savings_percent: parseInt(form.minimum_savings_percent) || 0,
@@ -152,7 +155,7 @@ export default function LibraryForm() {
     : form.encoder === 'intel' ? 'Intel QSV'
     : form.encoder === 'vaapi' ? 'VA-API'
     : form.encoder === 'amdgpu' ? 'AMD AMF'
-    : 'libx264'
+    : form.codec === 'h265' ? 'libx265' : 'libx264'
 
   const targetBr = form.target_bitrate || 3000
   const maxBr = form.max_bitrate || 3300
@@ -161,6 +164,7 @@ export default function LibraryForm() {
     target: 3000,
     max: 3300,
     encoder: 'nvidia',
+    codec: 'h264',
     audio: '',
     subtitles: '',
     savings: 10,
@@ -169,6 +173,7 @@ export default function LibraryForm() {
     parseInt(targetBr) !== base.target ||
     parseInt(maxBr) !== base.max ||
     form.encoder.trim().toLowerCase() !== base.encoder ||
+    form.codec !== base.codec ||
     normLangs(form.keep_audio_langs) !== base.audio ||
     normLangs(form.keep_subtitle_langs) !== base.subtitles ||
     (parseInt(form.minimum_savings_percent) || 10) !== base.savings
@@ -205,6 +210,14 @@ export default function LibraryForm() {
         <div style={s.section}>
           <h3 style={s.h3}>Conversion Settings</h3>
           <div className="form-row">
+            <div className="field">
+              <label>Output codec</label>
+              <select value={form.codec} onChange={set('codec')}>
+                <option value="h264">H.264</option>
+                <option value="h265">H.265 (HEVC)</option>
+              </select>
+              <Hint>H.264 is the default. H.265 uses the matching hardware encoder when available.</Hint>
+            </div>
             <div className="field">
               <label>Target bitrate (kbps)</label>
               <input type="number" value={form.target_bitrate} onChange={set('target_bitrate')} placeholder="3000" />
@@ -297,6 +310,10 @@ export default function LibraryForm() {
         <div style={s.section}>
           <h3 style={s.h3}>Summary</h3>
           <div className="detail-row">
+            <span className="label">Output codec</span>
+            <span className="value" style={{ fontFamily: 'monospace', fontSize: 12 }}>{form.codec === 'h265' ? 'H.265 / HEVC' : 'H.264 / AVC'}</span>
+          </div>
+          <div className="detail-row">
             <span className="label">Encoder</span>
             <span className="value" style={{ fontFamily: 'monospace', fontSize: 12 }}>{encLabel}</span>
           </div>
@@ -335,7 +352,7 @@ export default function LibraryForm() {
         </div>
         {cacheInvalidated && (
           <div className="info-message" style={{ marginTop: 12 }}>
-            Changing conversion settings (target/max bitrate, encoder, audio/subtitle languages, or
+            Changing conversion settings (target/max bitrate, codec, encoder, audio/subtitle languages, or
             min savings) invalidates the probe cache. The next scan of this library will re-probe
             every file from scratch.
           </div>

@@ -30,6 +30,23 @@ def _write_subtitle(path: Path, text: str):
     path.write_text(f"1\n00:00:00,000 --> 00:00:01,500\n{text}\n", encoding="utf-8")
 
 
+def _write_ass_subtitle(path: Path):
+    path.write_text(
+        """[Script Info]
+ScriptType: v4.00+
+
+[V4+ Styles]
+Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
+Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,2,1,2,12,12,12,1
+
+[Events]
+Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+Dialogue: 0,0:00:00.00,0:00:01.50,Default,,0,0,0,,{\\i1}Styled ASS subtitle{\\i0}
+""",
+        encoding="utf-8",
+    )
+
+
 def _make_multitrack_fixture(path: Path):
     """Build a source with predictable language and default-track metadata."""
     eng = path.with_name("eng.srt")
@@ -54,6 +71,42 @@ def _make_multitrack_fixture(path: Path):
         ],
         check=True,
     )
+
+
+def _make_ass_fixture(path: Path):
+    subtitle = path.with_name("styled.ass")
+    font = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+    if not font.exists():
+        pytest.skip("DejaVuSans test font unavailable")
+    _write_ass_subtitle(subtitle)
+    subprocess.run(
+        [
+            convert.FFMPEG_CMD, "-y", "-v", "error",
+            "-f", "lavfi", "-i", "testsrc2=duration=2:size=160x90:rate=24",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+            "-i", str(subtitle),
+            "-map", "0:v", "-map", "1:a", "-map", "2:s",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "18",
+            "-c:a", "aac", "-c:s", "ass",
+            "-metadata:s:a:0", "language=eng",
+            "-metadata:s:s:0", "language=eng",
+            "-attach", str(font),
+            "-metadata:s:t:0", "mimetype=application/x-truetype-font",
+            str(path),
+        ],
+        check=True,
+    )
+
+
+def _convert_and_validate(source: Path, output: Path, encoder: str, monkeypatch):
+    cmd, err = convert.build_ffmpeg_cmd(
+        source, output, crf=30, disable_hwaccel=True,
+        encoder=encoder, encoder_profile="cpu",
+    )
+    assert err is None
+    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    ok, message = convert.validate_attempt_output(source, output, encoder)
+    assert ok, message
 
 
 @requires_ffmpeg
@@ -102,6 +155,76 @@ def test_generated_multitrack_conversion_keeps_all_when_language_filters_empty(t
     assert convert.probe_output_signature(output) == (
         ("h264",), ("aac:eng", "aac:jpn"), ("subrip:eng", "subrip:jpn"),
     )
+
+
+@requires_ffmpeg
+def test_generated_ass_subtitle_is_preserved_during_hevc_conversion(tmp_path, monkeypatch):
+    _require_encoder("libx265")
+    source = tmp_path / "styled.mkv"
+    output = tmp_path / "styled-hevc.mkv"
+    _make_ass_fixture(source)
+
+    monkeypatch.setattr(convert, "ALLOWED_AUDIO_LANGS", {"eng"})
+    monkeypatch.setattr(convert, "ALLOWED_SUBTITLE_LANGS", {"eng"})
+    cmd, err = convert.build_ffmpeg_cmd(
+        source, output, crf=30, disable_hwaccel=True,
+        encoder="libx265", encoder_profile="cpu",
+    )
+
+    assert err is None
+    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    assert convert.probe_output_signature(output) == (("hevc",), ("aac:eng",), ("ass:eng",))
+    streams = convert.ffprobe_json(output, "stream=codec_type")
+    assert any(stream.get("codec_type") == "attachment" for stream in streams["streams"])
+    ok, message = convert.validate_attempt_output(source, output, "libx265")
+    assert ok, message
+
+
+@requires_ffmpeg
+@pytest.mark.parametrize(
+    ("encoder", "expected_video"),
+    [("libx264", "h264"), ("libx265", "hevc")],
+)
+def test_real_matroska_multiaudio_subtitles_are_preserved_during_conversion(tmp_path, monkeypatch, encoder, expected_video):
+    _require_encoder(encoder)
+    source = DOWNLOADS_DIR / "matroska-test5-multi-audio-subtitles.mkv"
+    if not source.exists():
+        pytest.skip(f"downloaded fixture missing: {source.name}")
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == "92acdc33bb0b5d7a4d9b0d6ca792230a78c786a30179dc9999cee41c28642842"
+
+    output = tmp_path / f"matroska-test5-{expected_video}.mkv"
+    monkeypatch.setattr(convert, "ALLOWED_AUDIO_LANGS", set())
+    monkeypatch.setattr(convert, "ALLOWED_SUBTITLE_LANGS", {"eng", "jpn"})
+
+    _convert_and_validate(source, output, encoder, monkeypatch)
+    assert convert.probe_output_signature(output) == (
+        (expected_video,), ("aac:und", "aac:eng"), ("subrip:eng", "subrip:jpn"),
+    )
+
+
+@requires_ffmpeg
+@pytest.mark.parametrize(
+    ("filename", "encoder", "expected_video"),
+    [
+        ("Test Jellyfin 1080p AVC 10M.mp4", "libx264", "h264"),
+        ("Test Jellyfin 1080p AVC 10M.mp4", "libx265", "hevc"),
+        ("Test Jellyfin 1080p HEVC 8bit 10M.mp4", "libx264", "h264"),
+        ("Test Jellyfin 1080p HEVC 8bit 10M.mp4", "libx265", "hevc"),
+        ("Test Jellyfin 1080p HEVC 10bit 10M.mp4", "libx264", "h264"),
+        ("Test Jellyfin 1080p HEVC 10bit 10M.mp4", "libx265", "hevc"),
+    ],
+)
+def test_real_jellyfin_fixture_converts_and_validates(tmp_path, monkeypatch, filename, encoder, expected_video):
+    _require_encoder(encoder)
+    source = DOWNLOADS_DIR / filename
+    if not source.exists():
+        pytest.skip(f"downloaded fixture missing: {filename}")
+
+    monkeypatch.setattr(convert, "ALLOWED_AUDIO_LANGS", set())
+    monkeypatch.setattr(convert, "ALLOWED_SUBTITLE_LANGS", set())
+    output = tmp_path / f"{source.stem}-{expected_video}.mkv"
+    _convert_and_validate(source, output, encoder, monkeypatch)
+    assert convert.probe_output_signature(output)[0] == (expected_video,)
 
 
 @requires_ffmpeg
