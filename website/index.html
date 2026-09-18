@@ -6,7 +6,7 @@
   <meta name="description" content="JellySqueeze — the video compression utility for Jellyfin. Shrink oversized videos, strip unwanted audio and subtitle tracks, save gigabytes of disk space.">
   <title>JellySqueeze — The Video Compression Utility for Jellyfin</title>
   <link rel="stylesheet" href="style.css">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23000080'/%3E%3Ctext x='8' y='12.5' font-size='11' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'%3EJ%3C/text%3E%3C/svg%3E">
+  <link rel="icon" type="image/png" href="/static/favicon.png">
 </head>
 <body>
 <div class="page">
@@ -14,19 +14,11 @@
   <!-- ══════════ MASTHEAD ══════════ -->
   <header class="masthead" id="top">
     <div class="logo-box" aria-hidden="true">
-      <svg viewBox="0 0 64 64" width="54" height="54" role="img" aria-label="JellySqueeze logo">
-        <rect x="2" y="2" width="60" height="60" fill="#000080" stroke="#ffffff" stroke-width="2"/>
-        <rect x="14" y="34" width="6" height="18" fill="#c0c0c0"/>
-        <rect x="23" y="28" width="6" height="24" fill="#c0c0c0"/>
-        <rect x="32" y="20" width="6" height="32" fill="#ffff00"/>
-        <rect x="41" y="12" width="6" height="40" fill="#c0c0c0"/>
-        <rect x="14" y="52" width="33" height="3" fill="#ffffff"/>
-      </svg>
+      <img src="/static/logo.png" width="54" height="54" alt="JellySqueeze logo">
     </div>
     <div class="masthead-text">
-      <h1>Jelly<em>Squeeze</em> <span class="version-tag">v3.0</span></h1>
+      <h1>Jelly<em>Squeeze</em></h1>
       <p class="tagline">The Video Compression Utility for Jellyfin&trade;</p>
-      <p class="stars" aria-label="Rated 5 out of 5 stars">&#9733;&#9733;&#9733;&#9733;&#9733; <span>"Squeezed 195&nbsp;GB off my library!" — Satisfied User</span></p>
     </div>
     <div class="masthead-side">
       <p class="new-flash"><span class="blink">NEW!</span> GPU edition</p>
@@ -39,8 +31,6 @@
     <a href="#top" class="nav-btn">Home</a>
     <a href="#download" class="nav-btn">Download</a>
     <a href="#features" class="nav-btn">Features</a>
-    <a href="#screenshot" class="nav-btn">Screenshots</a>
-    <a href="#support" class="nav-btn">Support</a>
   </nav>
 
   <!-- ══════════ NEWS TICKER ══════════ -->
@@ -48,16 +38,16 @@
     <span class="ticker-label">NEWS:</span>
     <div class="ticker-track">
       <span class="ticker-text">
-        &#9733; JellySqueeze 3.0 is here — now with NVIDIA NVENC hardware acceleration! &#9733;
-        Save up to 90% disk space per file! &#9733;
+        &#9733; JellySqueeze — now with NVIDIA NVENC hardware acceleration! &#9733;
+        Save up to 80% disk space per file! &#9733;
         New: automatic "Recently Added" Jellyfin scans! &#9733;
-        Free for home use — no registration required! &#9733;&nbsp;
+        &nbsp;
       </span>
       <span class="ticker-text" aria-hidden="true">
-        &#9733; JellySqueeze 3.0 is here — now with NVIDIA NVENC hardware acceleration! &#9733;
-        Save up to 90% disk space per file! &#9733;
+        &#9733; JellySqueeze — now with NVIDIA NVENC hardware acceleration! &#9733;
+        Save up to 80% disk space per file! &#9733;
         New: automatic "Recently Added" Jellyfin scans! &#9733;
-        Free for home use — no registration required! &#9733;&nbsp;
+        &nbsp;
       </span>
     </div>
   </div>
@@ -70,11 +60,11 @@
       <section class="panel" id="download">
         <h2 class="panel-title">Latest Version</h2>
         <div class="panel-body center">
-          <p class="big-ver">JellySqueeze 3.0</p>
+          <p class="big-ver">JellySqueeze</p>
           <p class="file-meta">source snapshot .zip<br>Linux &middot; Docker &middot; GitHub</p>
           <a class="dl-button big" href="https://github.com/craftpip/media-convert-for-jellyfin/archive/refs/heads/main.zip">DOWNLOAD<br>NOW!</a>
           <p class="stamp" aria-hidden="true">100% FREE</p>
-          <p class="fineprint">Free for home use.<br>No spyware. No ads.<br>No registration.</p>
+          <p class="fineprint">No spyware. No ads.</p>
         </div>
       </section>
 
@@ -90,17 +80,6 @@
             <tr><th>Server</th><td>Jellyfin 10.x</td></tr>
             <tr><th>Disk</th><td>Lots (you'll get it back!)</td></tr>
           </table>
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2 class="panel-title">Quick Install</h2>
-        <div class="panel-body">
-          <pre class="terminal">git clone https://github.com/
-  craftpip/media-convert-
-  for-jellyfin.git
-cd media-convert-for-jellyfin
-docker compose up -d</pre>
         </div>
       </section>
     </aside>
@@ -124,39 +103,56 @@ docker compose up -d</pre>
       </p>
 
       <hr class="groove">
+      <h3 id="install">Quick Install</h3>
+      <p>All you need is Docker. Clone the repo and start the container:</p>
+      <pre class="terminal">git clone https://github.com/craftpip/media-convert-for-jellyfin.git
+cd media-convert-for-jellyfin
+docker compose up -d</pre>
+      <p>Then open the control panel at <b>http://localhost:9238/</b> and add your first library.</p>
+
+      <hr class="groove">
       <h3 id="screenshot">The Control Panel <span class="new">NEW!</span></h3>
       <p>Every copy ships with a built-in <b>Web Control Panel</b> — start runs, watch
         live progress, and browse run history from any browser on your network:</p>
 
       <figure class="shot-frame">
         <figcaption class="shot-titlebar">
-          <span>JellySqueeze 3.0 — Control Panel</span>
-          <span class="win-btns" aria-hidden="true"><i>_</i><i>&square;</i><i>&times;</i></span>
+          <span class="shot-tab"><img src="/static/favicon.png" width="12" height="12" alt=""> JellySqueeze <i>&times;</i></span>
+          <span class="shot-newtab" aria-hidden="true">+</span>
         </figcaption>
-        <div class="shot-body">
-          <div class="shot-side">
-            <b>JellySqueeze</b>
-            <span class="on">Dashboard</span><span>Add Library</span>
-            <span>Run History</span><span>Schedules</span><span>Errors</span>
-          </div>
-          <div class="shot-main">
-            <div class="shot-cards">
-              <div><b>200</b>Total runs</div>
-              <div><b>92</b>Completed</div>
-              <div><b>195 GB</b>Saved</div>
-            </div>
-            <table class="shot-table">
-              <tr><th>Library</th><th>Last run</th><th>Saved</th><th>Status</th></tr>
-              <tr><td>Movies R</td><td>today</td><td>61.2 GB</td><td class="ok">DONE</td></tr>
-              <tr><td>Shows</td><td>today</td><td>54.8 GB</td><td class="ok">DONE</td></tr>
-              <tr><td>Movies</td><td>yesterday</td><td>47.5 GB</td><td class="ok">DONE</td></tr>
-              <tr><td>Shows R</td><td>02:14</td><td>31.9 GB</td><td class="run">RUNNING &#9654;</td></tr>
-            </table>
-            <div class="shot-bar"><i style="width:72%"></i></div>
-            <p class="shot-cap">Squeezing: <b>S02E14 — "The One With 18 Mbps.mkv"</b> … 72%</p>
-          </div>
+        <div class="shot-addrbar" aria-hidden="true">
+          <span class="shot-tbtn">&#8592;</span><span class="shot-tbtn dim">&#8594;</span><span class="shot-tbtn">&#8635;</span>
+          <span class="shot-url">http://localhost:9238/</span>
         </div>
-        <div class="shot-status"><span>&#9679; Ready</span><span>Squeezing&hellip; 72%</span></div>
+        <div class="shot-app">
+          <div class="shot-top">
+            <span class="shot-brand"><img src="/static/logo.png" width="14" height="14" alt=""> JellySqueeze</span>
+            <span class="shot-nav on">Dashboard</span><span class="shot-nav">Add Library</span><span class="shot-nav">Run History</span><span class="shot-nav">Schedules</span><span class="shot-nav">Errors</span><span class="shot-nav">Settings</span>
+            <span class="shot-chip">CPU 33% ███░░░░░░░</span>
+            <span class="shot-chip">TEMP 45°C</span>
+            <span class="shot-btn">Signout</span>
+          </div>
+          <div class="shot-stats">
+            <div><b>48</b><span>runs</span></div>
+            <div><b>3</b><span>libraries</span></div>
+            <div><b>41</b><span>ok</span></div>
+            <div><b>12</b><span>skip</span></div>
+            <div><b>0</b><span>fail</span></div>
+            <div><b>36.5</b><span>GB saved</span></div>
+          </div>
+          <p class="shot-bar-title">Libraries</p>
+          <div class="table-wrap">
+          <table class="shot-table">
+            <tr><th>Name</th><th>Last run</th><th>Encoder</th><th>Bitrate</th><th>OK</th><th>Skip</th><th>Fail</th><th>Saved</th></tr>
+            <tr><td>Movies</td><td>today</td><td>nvidia</td><td>3000k</td><td>12</td><td>3</td><td>0</td><td>12.4 GB</td></tr>
+            <tr><td>TV Shows</td><td>today</td><td>nvidia</td><td>2500k</td><td>18</td><td>5</td><td>0</td><td>9.8 GB</td></tr>
+            <tr><td>Documentaries</td><td>yesterday</td><td>nvidia</td><td>3500k</td><td>11</td><td>4</td><td>0</td><td>7.1 GB</td></tr>
+            <tr><td>Home Videos</td><td>02:14</td><td>nvidia</td><td>2500k</td><td>0</td><td>0</td><td>0</td><td class="run">RUNNING &#9654;</td></tr>
+          </table>
+          </div>
+            <div class="shot-bar"><i style="width:72%"></i></div>
+            <p class="shot-cap">Squeezing: <b>Home.Movie.2020.1080p.mkv</b> … 72%</p>
+          </div>
         <figcaption class="shot-foot">Fig. 1 — The Control Panel, hard at work.</figcaption>
       </figure>
 
@@ -170,19 +166,21 @@ docker compose up -d</pre>
         <li><b>Resume-safe</b> — every finished file is logged; stop anytime and pick up where you left off</li>
         <li><b>Parallel workers</b> — squeeze 2–4 files at once on capable hardware</li>
         <li><b>Jellyfin "Recently Added"</b> — nightly scans that only touch new arrivals</li>
-        <li><b>Scheduler</b> — daily runs at 3 AM while you sleep</li>
+        <li><b>Scheduler</b> — scheduled runs while you sleep</li>
         <li><b>Atomic replacement</b> — originals are swapped only after the new file passes validation</li>
         <li><b>Live web UI</b> — progress bars, logs and history over WebSocket</li>
       </ul>
 
       <hr class="groove">
       <h3>Before &amp; After</h3>
+      <div class="table-wrap">
       <table class="ba-table">
         <tr><th>File</th><th>Before</th><th>After</th><th>Saved</th></tr>
         <tr><td>Blockbuster.Movie.2019.1080p.mkv</td><td>14.2 GB</td><td>3.1 GB</td><td class="ok">78%</td></tr>
         <tr><td>Show.S02E14.HDTV.x264.mkv</td><td>4.8 GB</td><td>1.2 GB</td><td class="ok">75%</td></tr>
         <tr><td>Documentary.2160p.BluRay.mkv</td><td>32.6 GB</td><td>6.4 GB</td><td class="ok">80%</td></tr>
       </table>
+      </div>
 
       <hr class="groove">
       <h3 id="support">Support</h3>
@@ -190,7 +188,6 @@ docker compose up -d</pre>
         Questions? Bug reports? Feature requests? File an issue on
         <a href="https://github.com/craftpip/media-convert-for-jellyfin/issues">GitHub Issues</a>
         or read the <a href="https://github.com/craftpip/media-convert-for-jellyfin">README</a>.
-        Registered users get a reply within 48 hours. Unregistered users too — it's all free!
       </p>
     </article>
 
@@ -199,10 +196,10 @@ docker compose up -d</pre>
       <section class="panel">
         <h2 class="panel-title">What's New</h2>
         <div class="panel-body">
-          <p><span class="new">NEW!</span> <b>v3.0</b> — NVENC hardware encoding, live web UI, scheduler, MCP API.</p>
-          <p><b>v2.1</b> — Jellyfin "recently added" mode, parallel workers.</p>
-          <p><b>v2.0</b> — SQLite state DB, probe cache, atomic file replacement.</p>
-          <p><b>v1.0</b> — Initial release. It squeezed!</p>
+          <p><b>Hardware encoding</b> — NVIDIA NVENC, Intel QSV, AMD VA-API.</p>
+          <p><b>Live web UI</b> — progress bars, logs and run history.</p>
+          <p><b>Scheduler</b> — plus Jellyfin "recently added" mode.</p>
+          <p><b>MCP API</b> — drive runs from automation.</p>
         </div>
       </section>
 
@@ -219,7 +216,7 @@ docker compose up -d</pre>
         <h2 class="panel-title">Visitors</h2>
         <div class="panel-body center">
           <p class="counter" id="hit-counter" aria-label="Visitor count">000001</p>
-          <p class="fineprint">squeezers served since 1998</p>
+          <p class="fineprint">squeezers served since 2026</p>
         </div>
       </section>
     </aside>
@@ -234,7 +231,7 @@ docker compose up -d</pre>
       <a href="#features">Features</a> |
       <a href="https://github.com/craftpip/media-convert-for-jellyfin">GitHub</a>
     </p>
-    <p>&copy; 1998–2026 JellySqueeze Software. All rights reserved. Jellyfin is a trademark of its respective owners.</p>
+    <p>&copy; 2026 JellySqueeze Software. All rights reserved. Jellyfin is a trademark of its respective owners.</p>
     <p class="badges" aria-label="Browser badges">
       <span class="badge88">BEST VIEWED WITH IE&nbsp;5.0</span>
       <span class="badge88 nets">NETSCAPE NOW!</span>
