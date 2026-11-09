@@ -25,7 +25,7 @@ export default function Layout({ passwordSet }) {
     return () => clearInterval(id)
   }, [])
 
-  function bar(pct, w = 10) {
+  function bar(pct, w = 8) {
     if (pct == null) return ''
     const filled = Math.round(pct / 100 * w)
     return '\u2588'.repeat(filled) + '\u2591'.repeat(Math.max(0, w - filled))
@@ -48,23 +48,18 @@ export default function Layout({ passwordSet }) {
             <li><NavLink to="/settings">Settings</NavLink></li>
           </ul>
         </div>
-        <div className="topbar-stats">
-          {stats && (
-            <>
-              <span className="stat-item">CPU {stats.cpu?.percent ?? '?'}% {bar(stats.cpu?.percent)}</span>
-              {stats.gpu && stats.gpu.length > 0 && stats.gpu.map((g, i) => (
-                <span className="stat-item" key={i}>
-                  GPU{i} {g.util_percent != null ? g.util_percent + '%' : '?'} {bar(g.util_percent)}
-                </span>
-              ))}
-              {stats.gpu && stats.gpu.length > 0 && (
-                <span className="stat-item">
-                  TEMP {stats.gpu.map(g => g.temp_c != null ? g.temp_c + '\u00B0C' : '?').join(' ')}
-                </span>
-              )}
-            </>
-          )}
-        </div>
+        {stats && (
+          <div className="topbar-stats" aria-label="System stats">
+            <span className="stat-line"><span className="stat-lbl">CPU</span><span className="stat-val">{stats.cpu?.percent ?? '?'}%</span><span className="stat-bar">{bar(stats.cpu?.percent)}</span></span>
+            {stats.gpu && stats.gpu.length > 0 ? (
+              stats.gpu.map((g, i) => (
+                <span className="stat-line" key={i}><span className="stat-lbl">GPU{i}</span><span className="stat-val">{g.util_percent != null ? g.util_percent + '%' : '?'}</span><span className="stat-bar">{bar(g.util_percent)}</span></span>
+              ))
+            ) : (
+              <span className="stat-line"><span className="stat-lbl">GPU</span><span className="stat-val">n/a</span><span className="stat-bar"></span></span>
+            )}
+          </div>
+        )}
         {passwordSet && (
           <button type="button" className="btn outline sm signout" onClick={signOut}>Signout</button>
         )}
