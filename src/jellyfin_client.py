@@ -109,7 +109,7 @@ class JellyfinClient:
         r = self._http.get(
             f"{self._base_url}{path}",
             params=params,
-            headers={"X-Emby-Token": self._api_key},
+            headers={"Authorization": f'MediaBrowser Token="{self._api_key}"'},
         )
         r.raise_for_status()
         return r.json()
