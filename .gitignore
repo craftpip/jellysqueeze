@@ -31,3 +31,4 @@ fscan*
 # Platform-specific scripts
 work.bat
 pastlivestreams.log
+work/
